@@ -3,9 +3,8 @@ const express = require('express');
 const { Pool } = require('pg');
 const app = express();
 const port = process.env.PORT || 3000;
+const jwt = require('jsonwebtoken')
 app.use(express.json({ limit: '50mb' }));
-
-// Правильная конфигурация подключения для Render
 const poolConfig = {
   user: process.env.PG_USER,
   host: process.env.PG_HOST,
@@ -72,6 +71,13 @@ async function createTables() {
         cellIndex INTEGER,
         image BYTEA NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        login TEXT,
+        password TEXT,
+        name TEXT
+      );
     `);
     console.log('✅ Таблицы созданы/проверены');
   } catch (err) {
@@ -79,7 +85,97 @@ async function createTables() {
   }
 }
 
+
+app.use(async (req, res, next) => {
+  if (req.headers.authorization) {
+    try {
+      const token = req.headers.authorization.split(' ')[1];
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      
+      if (payload && payload.id) {
+        const result = await pool.query('SELECT * FROM users WHERE id = $1', [payload.id]);
+        
+        if (result.rows.length > 0) {
+          req.user = result.rows[0]; // Сохраняем всего пользователя
+          return next();
+        }
+      }
+    } catch (err) {
+      console.error('Ошибка проверки токена:', err);
+    }
+  }
+  next();
+});
+
+app.post('/auth', async(req, res) => {
+  try {
+      const { login, password } = req.body;
+      if (!login || !password) {
+          return res.status(400).json({ message: 'Login and password are required' });
+      }
+      const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
+      if (result.rows.length === 0) {
+          return res.status(404).json({ message: 'User not found' });
+      }
+      const user = result.rows[0];
+      if (user.password !== password) {
+          return res.status(401).json({ message: 'Invalid password' });
+      }
+      const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      
+      return res.status(200).json({
+          id: user.id,
+          login: user.login,
+          name: user.name,
+          token: token
+      });
+  }
+  catch(err) {
+      console.error('Auth error:', err);
+      return res.status(500).json({ message: 'Authentication failed' });
+  }
+});
+
+app.post('/register', (req, res) => {
+  const { login, password, name } = req.body;
+  if (!login || !password || !name) {
+      return res
+          .status(400)
+          .json({ message: 'Login, password and name are required' });
+  }
+  const result = pool.query('SELECT id FROM users WHERE login = $1', [login])
+  if (result.rows) {
+    return res
+    .status(409)
+    .json({ message: 'User already exists' });
+  }
+  else {
+    let id = crypto.randomUUID(); 
+    pool.query(
+      'INSERT INTO users (id, login, password, name) VALUES ($1, $2, $3, $4)',
+      [id, login, password, name]
+    );
+    return res.status(200).json({
+      login: login,
+      token: jwt.sign({ id: id }, process.env.JWT_SECRET),
+  })
+  }
+});
+
+
+
+
+//GET INFO ABOUT CURRENT USER
+app.get('/user', (req, res) => {
+  if (req.user) return res.status(200).json( {response : req.user});
+  else
+      return res
+          .status(401)
+          .json({ message: 'Not authorized' });
+});
+
 app.delete('/api/comics/:id', async(req,res) => {
+  if (req.user) {
   const { id } = req.params
   const client = await pool.connect()
     try {
@@ -89,6 +185,11 @@ app.delete('/api/comics/:id', async(req,res) => {
     catch (err) {
       res.status(500).json({"status" : "error"})
     }
+}
+else {
+return res
+    .status(401)
+    .json({ message: 'Not authorized' })}
 }
 )
 
@@ -102,7 +203,7 @@ app.get('/api/comics', async(req,res) => {
     }
     catch (err) {
         res.status(500).json({
-            response: "Ошибка получениясписка  комиксов"
+            response: "Ошибка получения списка  комиксов"
         })
     }
 }
@@ -175,28 +276,9 @@ app.get('/api/comics/:id', async (req, res) => {
 });
 
 
-app.get('/api/debug/columns', async (req, res) => {
-  try {
-    const tables = ['comics', 'pages', 'image'];
-    const result = {};
-    
-    for (const table of tables) {
-      const query = `
-        SELECT column_name, data_type 
-        FROM information_schema.columns 
-        WHERE table_name = $1
-      `;
-      const res = await pool.query(query, [table]);
-      result[table] = res.rows;
-    }
-    
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 // Обработчик для /api/comics
 app.post('/api/comics', async (req, res) => {
+  if (req.user) {
   const { comic, pages } = req.body;
   
   // Валидация входных данных
@@ -247,9 +329,15 @@ console.log(`Сохранено изображений: ${checkImages.rows[0].co
   } finally {
     client.release();
   }
+}
+else
+return res
+    .status(401)
+    .json({ message: 'Not authorized' })
 });
 
 app.put('/api/comics/:id', async (req, res) => {
+  if (req.user) {
   const { id } = req.params;
   const { comic, pages } = req.body; // Обратите внимание: comic вместо comics
   const client = await pool.connect();
@@ -330,6 +418,11 @@ app.put('/api/comics/:id', async (req, res) => {
   } finally {
       client.release();
   }
+}
+else
+return res
+    .status(401)
+    .json({ message: 'Not authorized' })
 });
 
 // Проверка работы сервера
