@@ -1,0 +1,29 @@
+# Файлы окружения
+.env
+.env.*
+!.env.example
+
+# Логи и временные файлы
+*.log
+*.tmp
+*.swp
+*.swo
+.DS_Store
+
+# Зависимости
+node_modules/
+dist/
+build/
+
+# IDE специфичные файлы
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Системные файлы
+Thumbs.db
+ehthumbs.db
