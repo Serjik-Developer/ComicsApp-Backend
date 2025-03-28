@@ -92,6 +92,7 @@ app.delete('/api/comics/:id', async(req,res) => {
 }
 )
 
+
 app.get('/api/comics', async(req,res) => {
     try {
         const result = await pool.query('SELECT * FROM comics')
@@ -108,62 +109,92 @@ app.get('/api/comics', async(req,res) => {
 )
 
 app.get('/api/comics/:id', async (req, res) => {
-    const { id } = req.params;
-    const client = await pool.connect();
-  
-    try {
+  const { id } = req.params;
+  const client = await pool.connect();
+
+  try {
       // 1. Получаем данные комикса
       const comicQuery = await client.query(
-        'SELECT * FROM comics WHERE id = $1',
-        [id]
+          'SELECT id, text, description FROM comics WHERE id = $1',
+          [id]
       );
-  
+
       if (comicQuery.rows.length === 0) {
-        return res.status(404).json({ 
-          success: false,
-          error: 'Комикс не найден' 
-        });
+          return res.status(404).json({ 
+              success: false,
+              error: 'Комикс не найден' 
+          });
       }
-  
+
       const comic = comicQuery.rows[0];
-  
+
       // 2. Получаем все страницы комикса
       const pagesQuery = await client.query(
-        'SELECT * FROM pages WHERE comicsId = $1 ORDER BY number ASC',
-        [id]
+          'SELECT pageid, comicsid, number, rows, columns FROM pages WHERE comicsid = $1 ORDER BY number ASC',
+          [id]
       );
-  
+
       // 3. Для каждой страницы получаем изображения
       comic.pages = await Promise.all(
-        pagesQuery.rows.map(async (page) => {
-          const imagesQuery = await client.query(
-            'SELECT id, cellIndex FROM image WHERE pageId = $1 ORDER BY cellIndex ASC',
-            [page.pageId]
-          );
-          
-          return {
-            ...page,
-            images: imagesQuery.rows
-          };
-        })
+          pagesQuery.rows.map(async (page) => {
+              const imagesQuery = await client.query(
+                  'SELECT id, cellindex, encode(image, \'base64\') as image FROM image WHERE pageid = $1 ORDER BY cellindex ASC',
+                  [page.pageid]
+              );
+              
+              return {
+                  pageId: page.pageid,
+                  comicsId: page.comicsid,
+                  number: page.number,
+                  rows: page.rows,
+                  columns: page.columns,
+                  images: imagesQuery.rows.map(img => ({
+                      id: img.id,
+                      cellIndex: img.cellindex,
+                      image: img.image
+                  }))
+              };
+          })
       );
-  
+
       res.json({
-        success: true,
-        comic
+          success: true,
+          comic
       });
-  
-    } catch (err) {
+
+  } catch (err) {
       console.error('Ошибка при получении комикса:', err);
       res.status(500).json({ 
-        success: false,
-        error: 'Ошибка сервера при получении комикса' 
+          success: false,
+          error: 'Ошибка сервера при получении комикса',
+          details: err.message
       });
-    } finally {
+  } finally {
       client.release();
-    }
-  });
+  }
+});
 
+
+app.get('/api/debug/columns', async (req, res) => {
+  try {
+    const tables = ['comics', 'pages', 'image'];
+    const result = {};
+    
+    for (const table of tables) {
+      const query = `
+        SELECT column_name, data_type 
+        FROM information_schema.columns 
+        WHERE table_name = $1
+      `;
+      const res = await pool.query(query, [table]);
+      result[table] = res.rows;
+    }
+    
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // Обработчик для /api/comics
 app.post('/api/comics', async (req, res) => {
   const { comic, pages } = req.body;
@@ -198,10 +229,14 @@ app.post('/api/comics', async (req, res) => {
           [img.id, page.pageId, img.cellIndex, imageBuffer]
         );
       }
+      
     }
-    
+    // Временно добавьте в POST /api/comics после сохранения:
+const checkImages = await client.query('SELECT COUNT(*) FROM image WHERE pageId IN (SELECT pageId FROM pages WHERE comicsId = $1)', [comic.id]);
+console.log(`Сохранено изображений: ${checkImages.rows[0].count}`);
     await client.query('COMMIT');
-    res.status(201).json({ message: 'Комикс сохранён!' });
+    
+    res.status(200).json({ message: 'Комикс сохранён!' });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Ошибка сохранения комикса:', err);
@@ -213,6 +248,43 @@ app.post('/api/comics', async (req, res) => {
     client.release();
   }
 });
+
+app.put('/api/comics:id', async(req,res) => {
+  try {
+  const {comics, pages} = req.body
+  if (!comics || !pages) {
+    return res.status(400).json({error : "Необходимы comics и pages"})
+  }
+  const client = await pool.connect()
+  await client.query('BEGIN');
+      // обновляем комикс
+      await client.query(
+        'UPDATE comics SET (text, description) VALUES($1, $2) WHERE id = $3',
+        [comic.text, comic.description, comics.id]
+      );
+        // обновляем страницы и изображения
+        for (const page of pages) {
+          await client.query(
+            'UPDATE pages SET (pageId, comicsId, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
+            [page.pageId, page.comicsId, page.number, page.rows, page.columns]
+          );
+          
+          for (const img of page.images) {
+            const imageBuffer = Buffer.from(img.image, 'base64');
+            await client.query(
+              'UPDATE image SET(id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
+              [img.id, page.pageId, img.cellIndex, imageBuffer]
+            );
+          }
+        }
+  res.status(200)
+      }
+  catch(err) {
+    res.status(500).json({error : err})
+  }
+}
+)
+
 
 // Проверка работы сервера
 app.get('/health', async (req, res) => {
