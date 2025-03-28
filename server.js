@@ -78,6 +78,20 @@ async function createTables() {
     console.error('❌ Ошибка создания таблиц:', err.message);
   }
 }
+
+app.delete('/api/comics/:id', async(req,res) => {
+  const { id } = req.params
+  const client = await pool.connect()
+    try {
+      await client.query('DELETE FROM comics WHERE id = $1', [id])
+      res.status(200).json({"status" : "success"})
+    }
+    catch (err) {
+      res.status(500).json({"status" : "error"})
+    }
+}
+)
+
 app.get('/api/comics', async(req,res) => {
     try {
         const result = await pool.query('SELECT * FROM comics')
@@ -92,23 +106,8 @@ app.get('/api/comics', async(req,res) => {
     }
 }
 )
-/**
- * @api {get} /api/comicsById/:id Получить комикс по ID со страницами и изображениями
- * @apiName GetComicWithPagesAndImages
- * @apiGroup Comics
- *
- * @apiParam {String} id ID комикса
- *
- * @apiSuccess {Object} comic Данные комикса
- * @apiSuccess {String} comic.id ID комикса
- * @apiSuccess {String} comic.text Название комикса
- * @apiSuccess {String} comic.description Описание комикса
- * @apiSuccess {Array} comic.pages Страницы комикса
- * @apiSuccess {String} comic.pages.pageId ID страницы
- * @apiSuccess {Number} comic.pages.number Номер страницы
- * @apiSuccess {Array} comic.pages.images Изображения страницы
- */
-app.get('/api/comicsById/:id', async (req, res) => {
+
+app.get('/api/comics/:id', async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
   
