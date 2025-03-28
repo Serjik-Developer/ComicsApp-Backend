@@ -249,42 +249,88 @@ console.log(`Сохранено изображений: ${checkImages.rows[0].co
   }
 });
 
-app.put('/api/comics:id', async(req,res) => {
-  try {
-  const {comics, pages} = req.body
-  if (!comics || !pages) {
-    return res.status(400).json({error : "Необходимы comics и pages"})
-  }
-  const client = await pool.connect()
-  await client.query('BEGIN');
-      // обновляем комикс
-      await client.query(
-        'UPDATE comics SET (text, description) VALUES($1, $2) WHERE id = $3',
-        [comic.text, comic.description, comics.id]
-      );
-        // обновляем страницы и изображения
-        for (const page of pages) {
-          await client.query(
-            'UPDATE pages SET (pageId, comicsId, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
-            [page.pageId, page.comicsId, page.number, page.rows, page.columns]
-          );
-          
-          for (const img of page.images) {
-            const imageBuffer = Buffer.from(img.image, 'base64');
-            await client.query(
-              'UPDATE image SET(id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
-              [img.id, page.pageId, img.cellIndex, imageBuffer]
-            );
-          }
-        }
-  res.status(200)
-      }
-  catch(err) {
-    res.status(500).json({error : err})
-  }
-}
-)
+app.put('/api/comics/:id', async (req, res) => {
+  const { id } = req.params;
+  const { comic, pages } = req.body; // Обратите внимание: comic вместо comics
+  const client = await pool.connect();
 
+  if (!comic || !pages) {
+      return res.status(400).json({ error: "Необходимы comic и pages" });
+  }
+
+  try {
+      await client.query('BEGIN');
+
+      // 1. Обновляем данные комикса (кроме id)
+      await client.query(
+          'UPDATE comics SET text = $1, description = $2 WHERE id = $3',
+          [comic.text, comic.description, id]
+      );
+
+      // 2. Обрабатываем страницы
+      for (const page of pages) {
+          // Проверяем существование страницы
+          const pageExists = await client.query(
+              'SELECT 1 FROM pages WHERE pageid = $1 AND comicsid = $2',
+              [page.pageId, id]
+          );
+
+          if (pageExists.rows.length > 0) {
+              // Обновляем существующую страницу
+              await client.query(
+                  'UPDATE pages SET number = $1, rows = $2, columns = $3 WHERE pageid = $4',
+                  [page.number, page.rows, page.columns, page.pageId]
+              );
+          } else {
+              // Добавляем новую страницу
+              await client.query(
+                  'INSERT INTO pages (pageid, comicsid, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
+                  [page.pageId, id, page.number, page.rows, page.columns]
+              );
+          }
+
+          // 3. Обрабатываем изображения для страницы
+          for (const img of page.images) {
+              const imageBuffer = Buffer.from(img.image, 'base64');
+              const imgExists = await client.query(
+                  'SELECT 1 FROM image WHERE id = $1 AND pageid = $2',
+                  [img.id, page.pageId]
+              );
+
+              if (imgExists.rows.length > 0) {
+                  // Обновляем существующее изображение
+                  await client.query(
+                      'UPDATE image SET cellindex = $1, image = $2 WHERE id = $3',
+                      [img.cellIndex, imageBuffer, img.id]
+                  );
+              } else {
+                  // Добавляем новое изображение
+                  await client.query(
+                      'INSERT INTO image (id, pageid, cellindex, image) VALUES ($1, $2, $3, $4)',
+                      [img.id, page.pageId, img.cellIndex, imageBuffer]
+                  );
+              }
+          }
+      }
+
+      await client.query('COMMIT');
+      res.status(200).json({ 
+          success: true,
+          message: 'Комикс успешно обновлен' 
+      });
+
+  } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('Ошибка при обновлении комикса:', err);
+      res.status(500).json({ 
+          success: false,
+          error: 'Ошибка сервера при обновлении комикса',
+          details: err.message
+      });
+  } finally {
+      client.release();
+  }
+});
 
 // Проверка работы сервера
 app.get('/health', async (req, res) => {
