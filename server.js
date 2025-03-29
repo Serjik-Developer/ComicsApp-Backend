@@ -87,7 +87,7 @@ async function createTables() {
 }
 
 app.use(async (req, res, next) => {
-  if (req.path === '/auth' || req.path === '/register' || req.path === '/health') {
+  if (req.path === '/api/user/auth' || req.path === '/api/user/register' || req.path === '/health') {
     return next();
   }
 
@@ -137,7 +137,7 @@ app.use(async (req, res, next) => {
   }
 });
 
-app.post('/auth', async(req, res) => {
+app.post('/api/user/auth', async(req, res) => {
   try {
       const { login, password } = req.body;
       if (!login || !password) {
@@ -166,7 +166,7 @@ app.post('/auth', async(req, res) => {
   }
 });
 
-app.post('/register', (req, res) => {
+app.post('/api/user/register', (req, res) => {
   const { login, password, name } = req.body;
   if (!login || !password || !name) {
       return res
@@ -196,7 +196,7 @@ app.post('/register', (req, res) => {
 
 
 //GET INFO ABOUT CURRENT USER
-app.get('/user', (req, res) => {
+app.get('/api/user', (req, res) => {
   if (req.user) return res.status(200).json( {response : req.user});
   else
       return res
@@ -250,6 +250,21 @@ app.get('/api/comics', async(req,res) => {
     }
 }
 )
+
+app.get('/api/mycomics', async (req, res) => {
+  const client = await pool.connect()
+  try {
+    const result = await client.query('SELECT * FROM comics WHERE creator = $1', [req.user.id])
+    res.status(200).json({
+      response: result.rows
+    })
+  }
+  catch (err) {
+    res.status(500).json({
+      response: "Ошибка получения списка комиксов"
+    })
+  }
+})
 
 app.get('/api/comics/:id', async (req, res) => {
   const { id } = req.params;
@@ -357,8 +372,6 @@ app.post('/api/comics', async (req, res) => {
       
     }
     // Временно добавьте в POST /api/comics после сохранения:
-const checkImages = await client.query('SELECT COUNT(*) FROM image WHERE pageId IN (SELECT pageId FROM pages WHERE comicsId = $1)', [comic.id]);
-console.log(`Сохранено изображений: ${checkImages.rows[0].count}`);
     await client.query('COMMIT');
     
     res.status(200).json({ message: 'Комикс сохранён!' });
@@ -506,7 +519,7 @@ async function startServer() {
     await createTables();
     
     app.listen(port, '0.0.0.0', () => {
-      console.log(`🚀 Сервер запущен на http://localhost:${port}`);
+      console.log(`🚀 Сервер запущен на ${port} порту`);
     });
   }
   
