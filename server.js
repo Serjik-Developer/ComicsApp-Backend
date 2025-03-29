@@ -54,7 +54,8 @@ async function createTables() {
       CREATE TABLE IF NOT EXISTS comics (
         id TEXT PRIMARY KEY,
         text TEXT,
-        description TEXT
+        description TEXT,
+        creator TEXT
       );
       
       CREATE TABLE IF NOT EXISTS pages (
@@ -85,26 +86,55 @@ async function createTables() {
   }
 }
 
-
 app.use(async (req, res, next) => {
-  if (req.headers.authorization) {
-    try {
-      const token = req.headers.authorization.split(' ')[1];
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
-      
-      if (payload && payload.id) {
-        const result = await pool.query('SELECT * FROM users WHERE id = $1', [payload.id]);
-        
-        if (result.rows.length > 0) {
-          req.user = result.rows[0]; // Сохраняем всего пользователя
-          return next();
-        }
-      }
-    } catch (err) {
-      console.error('Ошибка проверки токена:', err);
-    }
+  if (req.path === '/auth' || req.path === '/register' || req.path === '/health') {
+    return next();
   }
-  next();
+
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader) {
+    return res.status(401).json({ message: 'Authorization header missing' });
+  }
+
+  const parts = authHeader.split(' ');
+  
+  if (parts.length !== 2 || parts[0] !== 'Bearer') {
+    return res.status(401).json({ message: 'Authorization format should be: Bearer [token]' });
+  }
+
+  const token = parts[1];
+  
+  if (!token) {
+    return res.status(401).json({ message: 'Token not provided' });
+  }
+
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    
+    if (!payload || !payload.id) {
+      return res.status(401).json({ message: 'Invalid token payload' });
+    }
+
+    const result = await pool.query('SELECT * FROM users WHERE id = $1', [payload.id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    req.user = result.rows[0];
+    next();
+  } catch (err) {
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+    
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Token expired' });
+    }
+    
+    return res.status(500).json({ message: 'Authentication failed' });
+  }
 });
 
 app.post('/auth', async(req, res) => {
@@ -179,6 +209,18 @@ app.delete('/api/comics/:id', async(req,res) => {
   const { id } = req.params
   const client = await pool.connect()
     try {
+      const creatorCheck = await client.query(
+        'SELECT creator FROM comics WHERE id = $1',
+        [id]
+      );
+  
+      if (creatorCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Комикс не найден' });
+      }
+  
+      if (creatorCheck.rows[0].creator !== req.user.id) {
+        return res.status(403).json({ message: 'Недостаточно прав для удаления' });
+      }
       await client.query('DELETE FROM comics WHERE id = $1', [id])
       res.status(200).json({"status" : "success"})
     }
@@ -216,7 +258,7 @@ app.get('/api/comics/:id', async (req, res) => {
   try {
       // 1. Получаем данные комикса
       const comicQuery = await client.query(
-          'SELECT id, text, description FROM comics WHERE id = $1',
+          'SELECT id, text, description, creator FROM comics WHERE id = $1',
           [id]
       );
 
@@ -244,6 +286,7 @@ app.get('/api/comics/:id', async (req, res) => {
               );
               
               return {
+                  creator: comicQuery.rows[3],
                   pageId: page.pageid,
                   comicsId: page.comicsid,
                   number: page.number,
@@ -293,8 +336,8 @@ app.post('/api/comics', async (req, res) => {
     
     // Сохраняем комикс
     await client.query(
-      'INSERT INTO comics (id, text, description) VALUES ($1, $2, $3)',
-      [comic.id, comic.text, comic.description]
+      'INSERT INTO comics (id, text, description, creator) VALUES ($1, $2, $3, $4)',
+      [comic.id, comic.text, comic.description, req.user.id]
     );
     
     // Сохраняем страницы и изображения
@@ -337,92 +380,102 @@ return res
 });
 
 app.put('/api/comics/:id', async (req, res) => {
-  if (req.user) {
-  const { id } = req.params;
-  const { comic, pages } = req.body; // Обратите внимание: comic вместо comics
-  const client = await pool.connect();
-
-  if (!comic || !pages) {
-      return res.status(400).json({ error: "Необходимы comic и pages" });
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
   }
+
+  const { id } = req.params;
+  const { comic, pages } = req.body;
+  
+  if (!comic || !pages) {
+    return res.status(400).json({ error: "Необходимы comic и pages" });
+  }
+
+  const client = await pool.connect();
+  let shouldRelease = true;
 
   try {
-      await client.query('BEGIN');
+    // 1. Проверяем, является ли пользователь создателем комикса
+    const creatorCheck = await client.query(
+      'SELECT creator FROM comics WHERE id = $1',
+      [id]
+    );
 
-      // 1. Обновляем данные комикса (кроме id)
-      await client.query(
-          'UPDATE comics SET text = $1, description = $2 WHERE id = $3',
-          [comic.text, comic.description, id]
+    if (creatorCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Комикс не найден' });
+    }
+
+    if (creatorCheck.rows[0].creator !== req.user.id) {
+      return res.status(403).json({ message: 'Недостаточно прав для редактирования' });
+    }
+
+    await client.query('BEGIN');
+
+    // 2. Обновляем данные комикса
+    await client.query(
+      'UPDATE comics SET text = $1, description = $2 WHERE id = $3',
+      [comic.text, comic.description, id]
+    );
+
+    // 3. Обрабатываем страницы
+    for (const page of pages) {
+      const pageExists = await client.query(
+        'SELECT 1 FROM pages WHERE pageid = $1 AND comicsid = $2',
+        [page.pageId, id]
       );
 
-      // 2. Обрабатываем страницы
-      for (const page of pages) {
-          // Проверяем существование страницы
-          const pageExists = await client.query(
-              'SELECT 1 FROM pages WHERE pageid = $1 AND comicsid = $2',
-              [page.pageId, id]
-          );
-
-          if (pageExists.rows.length > 0) {
-              // Обновляем существующую страницу
-              await client.query(
-                  'UPDATE pages SET number = $1, rows = $2, columns = $3 WHERE pageid = $4',
-                  [page.number, page.rows, page.columns, page.pageId]
-              );
-          } else {
-              // Добавляем новую страницу
-              await client.query(
-                  'INSERT INTO pages (pageid, comicsid, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
-                  [page.pageId, id, page.number, page.rows, page.columns]
-              );
-          }
-
-          // 3. Обрабатываем изображения для страницы
-          for (const img of page.images) {
-              const imageBuffer = Buffer.from(img.image, 'base64');
-              const imgExists = await client.query(
-                  'SELECT 1 FROM image WHERE id = $1 AND pageid = $2',
-                  [img.id, page.pageId]
-              );
-
-              if (imgExists.rows.length > 0) {
-                  // Обновляем существующее изображение
-                  await client.query(
-                      'UPDATE image SET cellindex = $1, image = $2 WHERE id = $3',
-                      [img.cellIndex, imageBuffer, img.id]
-                  );
-              } else {
-                  // Добавляем новое изображение
-                  await client.query(
-                      'INSERT INTO image (id, pageid, cellindex, image) VALUES ($1, $2, $3, $4)',
-                      [img.id, page.pageId, img.cellIndex, imageBuffer]
-                  );
-              }
-          }
+      if (pageExists.rows.length > 0) {
+        await client.query(
+          'UPDATE pages SET number = $1, rows = $2, columns = $3 WHERE pageid = $4',
+          [page.number, page.rows, page.columns, page.pageId]
+        );
+      } else {
+        await client.query(
+          'INSERT INTO pages (pageid, comicsid, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
+          [page.pageId, id, page.number, page.rows, page.columns]
+        );
       }
 
-      await client.query('COMMIT');
-      res.status(200).json({ 
-          success: true,
-          message: 'Комикс успешно обновлен' 
-      });
+      // 4. Обрабатываем изображения
+      for (const img of page.images) {
+        const imageBuffer = Buffer.from(img.image, 'base64');
+        const imgExists = await client.query(
+          'SELECT 1 FROM image WHERE id = $1 AND pageid = $2',
+          [img.id, page.pageId]
+        );
 
+        if (imgExists.rows.length > 0) {
+          await client.query(
+            'UPDATE image SET cellindex = $1, image = $2 WHERE id = $3',
+            [img.cellIndex, imageBuffer, img.id]
+          );
+        } else {
+          await client.query(
+            'INSERT INTO image (id, pageid, cellindex, image) VALUES ($1, $2, $3, $4)',
+            [img.id, page.pageId, img.cellIndex, imageBuffer]
+          );
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ 
+      success: true,
+      message: 'Комикс успешно обновлен' 
+    });
   } catch (err) {
-      await client.query('ROLLBACK');
-      console.error('Ошибка при обновлении комикса:', err);
-      res.status(500).json({ 
-          success: false,
-          error: 'Ошибка сервера при обновлении комикса',
-          details: err.message
-      });
+    await client.query('ROLLBACK');
+    console.error('Ошибка при обновлении комикса:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Ошибка сервера при обновлении комикса',
+      details: err.message
+    });
   } finally {
+    if (shouldRelease && client) {
       client.release();
+    }
   }
-}
-else
-return res
-    .status(401)
-    .json({ message: 'Not authorized' })
 });
 
 // Проверка работы сервера
