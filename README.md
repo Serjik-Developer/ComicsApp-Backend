@@ -2,6 +2,7 @@
 
 ## Описание
 Этот сервер на `Node.js` с использованием `Express` и `PostgreSQL` предоставляет API для управления комиксами. Реализована аутентификация с `JWT`, а также CRUD-операции для работы с пользователями и комиксами.
+Этот сервер необходим для работы моего нативного Android приложения ComicsApp - https://github.com/Serjik-Developer/ComicsApp
 
 ## Установка
 ### 1. Клонирование репозитория
@@ -110,6 +111,7 @@ npm start
 
 ## Description
 This `Node.js` server using `Express` and `PostgreSQL` provides an API for managing comics. It includes authentication with `JWT` and CRUD operations for users and comics.
+This server is necessary for my native Android App application - https://github.com/Serjik-Developer/ComicsApp
 
 ## Installation
 ### 1. Clone the repository
