@@ -248,7 +248,7 @@ app.get('/api/comics', async(req,res) => {
     try {
         const result = await pool.query('SELECT * FROM comics')
         res.status(200).json({
-            response: result.rows
+            result.rows
         })
     }
     catch (err) {
