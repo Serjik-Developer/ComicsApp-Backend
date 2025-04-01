@@ -154,8 +154,6 @@ app.post('/api/user/auth', async(req, res) => {
       const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
       
       return res.status(200).json({
-          id: user.id,
-          login: user.login,
           name: user.name,
           token: token
       });
@@ -186,7 +184,7 @@ app.post('/api/user/register', (req, res) => {
       [id, login, password, name]
     );
     return res.status(200).json({
-      login: login,
+      name: user.name,
       token: jwt.sign({ id: id }, process.env.JWT_SECRET),
   })
   }
