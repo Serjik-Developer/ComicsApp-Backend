@@ -164,29 +164,39 @@ app.post('/api/user/auth', async(req, res) => {
   }
 });
 
-app.post('/api/user/register', (req, res) => {
+app.post('/api/user/register', async (req, res) => {
   const { login, password, name } = req.body;
   if (!login || !password || !name) {
-      return res
-          .status(400)
-          .json({ message: 'Login, password and name are required' });
-  }
-  const result = pool.query('SELECT id FROM users WHERE login = $1', [login])
-  if (result.rows) {
     return res
-    .status(409)
-    .json({ message: 'User already exists' });
+      .status(400)
+      .json({ message: 'Login, password and name are required' });
   }
-  else {
-    let id = crypto.randomUUID(); 
-    pool.query(
+  
+  try {
+    // Check if user exists
+    const result = await pool.query('SELECT id FROM users WHERE login = $1', [login]);
+    
+    if (result.rows.length > 0) {
+      return res
+        .status(409)
+        .json({ message: 'User already exists' });
+    }
+    
+    // Create new user
+    const id = crypto.randomUUID(); 
+    await pool.query(
       'INSERT INTO users (id, login, password, name) VALUES ($1, $2, $3, $4)',
       [id, login, password, name]
     );
+    
+    // Return response with new user's info
     return res.status(200).json({
-      name: user.name,
+      name: name,  // Use the name from the request, not undefined 'user'
       token: jwt.sign({ id: id }, process.env.JWT_SECRET),
-  })
+    });
+  } catch (err) {
+    console.error('Registration error:', err);
+    return res.status(500).json({ message: 'Registration failed' });
   }
 });
 
