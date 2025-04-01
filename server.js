@@ -244,21 +244,54 @@ return res
 )
 
 
-app.get('/api/comics', async(req,res) => {
-    try {
-        const result = await pool.query('SELECT * FROM comics')
-        let response = result.rows
-        res.status(200).json({
-            response
-        })
-    }
-    catch (err) {
-        res.status(500).json({
-            response: "Ошибка получения списка  комиксов"
-        })
-    }
-}
-)
+app.get('/api/comics', async(req, res) => {
+  try {
+      // Получаем все комиксы
+      const comicsResult = await pool.query('SELECT id, text, description FROM comics');
+      
+      // Для каждого комикса находим первую картинку
+      const comicsWithImages = await Promise.all(
+          comicsResult.rows.map(async (comic) => {
+              // Находим первую страницу комикса
+              const firstPageResult = await pool.query(
+                  'SELECT pageid FROM pages WHERE comicsid = $1 ORDER BY number ASC LIMIT 1',
+                  [comic.id]
+              );
+              
+              let imageBase64 = null;
+              
+              if (firstPageResult.rows.length > 0) {
+                  const pageId = firstPageResult.rows[0].pageid;
+                  
+                  // Находим первую картинку на странице (сортировка по cellIndex)
+                  const firstImageResult = await pool.query(
+                      'SELECT encode(image, \'base64\') as image FROM image WHERE pageid = $1 ORDER BY cellindex ASC LIMIT 1',
+                      [pageId]
+                  );
+                  
+                  if (firstImageResult.rows.length > 0) {
+                      imageBase64 = firstImageResult.rows[0].image;
+                  }
+              }
+              
+              return {
+                  id: comic.id,
+                  text: comic.text,
+                  description: comic.description,
+                  image: imageBase64
+              };
+          })
+      );
+      
+      res.status(200).json(comicsWithImages);
+  }
+  catch (err) {
+      console.error('Ошибка получения списка комиксов:', err);
+      res.status(500).json({
+          error: "Ошибка получения списка комиксов"
+      });
+  }
+});
 
 app.get('/api/mycomics', async (req, res) => {
   const client = await pool.connect()
