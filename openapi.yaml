@@ -33,11 +33,6 @@ components:
     AuthResponse:
       type: object
       properties:
-        id:
-          type: string
-          format: uuid
-        login:
-          type: string
         name:
           type: string
         token:
@@ -167,7 +162,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  login:
+                  name:
                     type: string
                   token:
                     type: string
