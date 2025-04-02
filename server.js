@@ -313,7 +313,7 @@ app.get('/api/comics/:id', async (req, res) => {
   const client = await pool.connect();
 
   try {
-      // 1. Получаем данные комикса
+      // 1. Get comic data
       const comicQuery = await client.query(
           'SELECT id, text, description, creator FROM comics WHERE id = $1',
           [id]
@@ -327,13 +327,13 @@ app.get('/api/comics/:id', async (req, res) => {
 
       const comic = comicQuery.rows[0];
 
-      // 2. Получаем все страницы комикса
+      // 2. Get all pages for the comic
       const pagesQuery = await client.query(
           'SELECT pageid, comicsid, number, rows, columns FROM pages WHERE comicsid = $1 ORDER BY number ASC',
           [id]
       );
 
-      // 3. Для каждой страницы получаем изображения
+      // 3. Get images for each page
       comic.pages = await Promise.all(
           pagesQuery.rows.map(async (page) => {
               const imagesQuery = await client.query(
@@ -341,7 +341,7 @@ app.get('/api/comics/:id', async (req, res) => {
                   [page.pageid]
               );
               
-              res.json({
+              return {
                   pageId: page.pageid,
                   number: page.number,
                   rows: page.rows,
@@ -351,11 +351,12 @@ app.get('/api/comics/:id', async (req, res) => {
                       cellIndex: img.cellindex,
                       image: img.image
                   }))
-              })
+              };
           })
       );
 
-
+      // Send the complete response once
+      res.status(200).json(comic);
 
   } catch (err) {
       console.error('Ошибка при получении комикса:', err);
@@ -368,7 +369,6 @@ app.get('/api/comics/:id', async (req, res) => {
       client.release();
   }
 });
-
 
 // Обработчик для /api/comics
 app.post('/api/comics', async (req, res) => {
