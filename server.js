@@ -320,8 +320,7 @@ app.get('/api/comics/:id', async (req, res) => {
       );
 
       if (comicQuery.rows.length === 0) {
-          return res.status(404).json({ 
-              success: false,
+          return res.status(404).json({
               error: 'Комикс не найден' 
           });
       }
@@ -359,7 +358,6 @@ app.get('/api/comics/:id', async (req, res) => {
       );
 
       res.json({
-          success: true,
           comic
       });
 
