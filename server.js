@@ -341,10 +341,8 @@ app.get('/api/comics/:id', async (req, res) => {
                   [page.pageid]
               );
               
-              return {
-                  creator: comicQuery.rows[3],
+              res.json({
                   pageId: page.pageid,
-                  comicsId: page.comicsid,
                   number: page.number,
                   rows: page.rows,
                   columns: page.columns,
@@ -353,13 +351,11 @@ app.get('/api/comics/:id', async (req, res) => {
                       cellIndex: img.cellindex,
                       image: img.image
                   }))
-              };
+              })
           })
       );
 
-      res.json({
-          comic
-      });
+
 
   } catch (err) {
       console.error('Ошибка при получении комикса:', err);
