@@ -127,7 +127,6 @@ npm install dotenv express pg jsonwebtoken cors body-parser
 ### 3. Create a `.env` file
 Create a `.env` file in the root directory and specify the database connection parameters and JWT settings:
 ```env
-PORT=5432
 PG_USER=<YOUR_USER>
 PG_HOST=<SERVER_ADDRESS>
 PG_DATABASE=<DATABASE_NAME>
