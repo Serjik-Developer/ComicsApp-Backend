@@ -370,10 +370,9 @@ app.get('/api/comics/:id', async (req, res) => {
   }
 });
 
-// Обработчик для /api/comics
 app.post('/api/comics', async (req, res) => {
   if (req.user) {
-    const { id, text, description, pages } = req.body; // Changed from comic
+    const { id, text, description, pages } = req.body;
     
     // Validation
     if (!id || !text || !description || !pages) {
@@ -401,9 +400,11 @@ app.post('/api/comics', async (req, res) => {
         if (page.images) {
           for (const img of page.images) {
             const imageBuffer = Buffer.from(img.image, 'base64');
+            // Generate new UUID for each image
+            const imageId = crypto.randomUUID();
             await client.query(
               'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
-              [img.id, page.pageId, img.cellIndex, imageBuffer]
+              [imageId, page.pageId, img.cellIndex, imageBuffer] // Use the new ID
             );
           }
         }
