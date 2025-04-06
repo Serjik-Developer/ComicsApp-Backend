@@ -1,358 +1,29 @@
 openapi: 3.0.0
 info:
-  title: Comics API
-  description: API for managing comics, pages, and images with user authentication
+  title: Comics Server API
+  description: API для управления комиксами и пользователями
   version: 1.0.0
 servers:
   - url: http://localhost:3000
-    description: Local development server
+    description: Локальный сервер разработки
 
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-  schemas:
-    User:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-          example: "550e8400-e29b-41d4-a716-446655440000"
-        login:
-          type: string
-          example: "user123"
-        name:
-          type: string
-          example: "John Doe"
-        password:
-          type: string
-          example: "securepassword123"
-    AuthResponse:
-      type: object
-      properties:
-        name:
-          type: string
-        token:
-          type: string
-          description: JWT token for authentication
-    Comic:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        text:
-          type: string
-        description:
-          type: string
-        creator:
-          type: string
-          format: uuid
-        pages:
-          type: array
-          items:
-            $ref: '#/components/schemas/Page'
-    Page:
-      type: object
-      properties:
-        pageId:
-          type: string
-          format: uuid
-        comicsId:
-          type: string
-          format: uuid
-        number:
-          type: integer
-        rows:
-          type: integer
-        columns:
-          type: integer
-        images:
-          type: array
-          items:
-            $ref: '#/components/schemas/Image'
-    Image:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        cellIndex:
-          type: integer
-        image:
-          type: string
-          format: byte
-          description: Base64 encoded image
-    Error:
-      type: object
-      properties:
-        message:
-          type: string
-        details:
-          type: string
-        error:
-          type: string
+tags:
+  - name: Authentication
+    description: Аутентификация и регистрация пользователей
+  - name: Users
+    description: Операции с пользователями
+  - name: Comics
+    description: Управление комиксами
 
 paths:
-  /api/user/auth:
-    post:
-      tags:
-        - Authentication
-      summary: Authenticate user
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                login:
-                  type: string
-                password:
-                  type: string
-              required:
-                - login
-                - password
-      responses:
-        '200':
-          description: Successful authentication
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '400':
-          description: Missing login or password
-        '401':
-          description: Invalid credentials
-        '404':
-          description: User not found
-        '500':
-          description: Authentication failed
-
-  /api/user/register:
-    post:
-      tags:
-        - Authentication
-      summary: Register new user
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                login:
-                  type: string
-                password:
-                  type: string
-                name:
-                  type: string
-              required:
-                - login
-                - password
-                - name
-      responses:
-        '200':
-          description: User registered successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  name:
-                    type: string
-                  token:
-                    type: string
-        '400':
-          description: Missing required fields
-        '409':
-          description: User already exists
-        '500':
-          description: Registration failed
-
-  /api/user:
-    get:
-      tags:
-        - User
-      summary: Get current user info
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: User information
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  response:
-                    $ref: '#/components/schemas/User'
-        '401':
-          description: Not authorized
-
-  /api/comics:
-    get:
-      tags:
-        - Comics
-      summary: Get all comics
-      responses:
-        '200':
-          description: List of comics
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  response:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Comic'
-        '500':
-          description: Server error
-    post:
-      tags:
-        - Comics
-      summary: Create new comic
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                comic:
-                  $ref: '#/components/schemas/Comic'
-                pages:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/Page'
-              required:
-                - comic
-                - pages
-      responses:
-        '200':
-          description: Comic created successfully
-        '400':
-          description: Invalid input
-        '401':
-          description: Not authorized
-        '500':
-          description: Server error
-
-  /api/comics/{id}:
-    get:
-      tags:
-        - Comics
-      summary: Get comic by ID
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Comic details
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  comic:
-                    $ref: '#/components/schemas/Comic'
-        '404':
-          description: Comic not found
-        '500':
-          description: Server error
-    put:
-      tags:
-        - Comics
-      summary: Update comic
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                comic:
-                  $ref: '#/components/schemas/Comic'
-                pages:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/Page'
-              required:
-                - comic
-                - pages
-      responses:
-        '200':
-          description: Comic updated successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
-        '400':
-          description: Invalid input
-        '401':
-          description: Not authorized
-        '403':
-          description: Not enough permissions
-        '404':
-          description: Comic not found
-        '500':
-          description: Server error
-    delete:
-      tags:
-        - Comics
-      summary: Delete comic
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Comic deleted successfully
-        '401':
-          description: Not authorized
-        '403':
-          description: Not enough permissions
-        '404':
-          description: Comic not found
-        '500':
-          description: Server error
-
   /health:
     get:
       tags:
         - System
-      summary: Health check
+      summary: Проверка работоспособности сервера
       responses:
         '200':
-          description: System is healthy
+          description: Сервер работает
           content:
             application/json:
               schema:
@@ -363,4 +34,404 @@ paths:
                   database:
                     type: string
         '500':
-          description: System is not healthy
+          description: Ошибка сервера
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  database:
+                    type: string
+                  error:
+                    type: string
+
+  /api/user/auth:
+    post:
+      tags:
+        - Authentication
+      summary: Аутентификация пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - login
+                - password
+              properties:
+                login:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Успешная аутентификация
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  token:
+                    type: string
+        '400':
+          description: Не указаны логин или пароль
+        '404':
+          description: Пользователь не найден
+        '401':
+          description: Неверный пароль
+        '500':
+          description: Ошибка сервера
+
+  /api/user/register:
+    post:
+      tags:
+        - Authentication
+      summary: Регистрация нового пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - login
+                - password
+                - name
+              properties:
+                login:
+                  type: string
+                password:
+                  type: string
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Успешная регистрация
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  token:
+                    type: string
+        '400':
+          description: Не указаны обязательные поля
+        '409':
+          description: Пользователь уже существует
+        '500':
+          description: Ошибка сервера
+
+  /api/user:
+    get:
+      tags:
+        - Users
+      summary: Получение информации о текущем пользователе
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Информация о пользователе
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      login:
+                        type: string
+                      password:
+                        type: string
+                      name:
+                        type: string
+        '401':
+          description: Пользователь не авторизован
+
+  /api/comics:
+    get:
+      tags:
+        - Comics
+      summary: Получение списка всех комиксов
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Список комиксов
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    text:
+                      type: string
+                    description:
+                      type: string
+                    image:
+                      type: string
+                      format: byte
+        '500':
+          description: Ошибка сервера
+
+    post:
+      tags:
+        - Comics
+      summary: Создание нового комикса
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - comic
+              properties:
+                comic:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    text:
+                      type: string
+                    description:
+                      type: string
+                    pages:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          pageId:
+                            type: string
+                          comicsId:
+                            type: string
+                          number:
+                            type: integer
+                          rows:
+                            type: integer
+                          columns:
+                            type: integer
+                          images:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id:
+                                  type: string
+                                cellIndex:
+                                  type: integer
+                                image:
+                                  type: string
+                                  format: byte
+      responses:
+        '200':
+          description: Комикс успешно создан
+        '400':
+          description: Неверные входные данные
+        '401':
+          description: Пользователь не авторизован
+        '500':
+          description: Ошибка сервера
+
+  /api/comics/{id}:
+    get:
+      tags:
+        - Comics
+      summary: Получение информации о конкретном комиксе
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Информация о комиксе
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  text:
+                    type: string
+                  description:
+                    type: string
+                  creator:
+                    type: string
+                  pages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        pageId:
+                          type: string
+                        number:
+                          type: integer
+                        rows:
+                          type: integer
+                        columns:
+                          type: integer
+                        images:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              cellIndex:
+                                type: integer
+                              image:
+                                type: string
+                                format: byte
+        '404':
+          description: Комикс не найден
+        '500':
+          description: Ошибка сервера
+
+    put:
+      tags:
+        - Comics
+      summary: Обновление комикса
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - comic
+                - pages
+              properties:
+                comic:
+                  type: object
+                  properties:
+                    text:
+                      type: string
+                    description:
+                      type: string
+                pages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      pageId:
+                        type: string
+                      number:
+                        type: integer
+                      rows:
+                        type: integer
+                      columns:
+                        type: integer
+                      images:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            cellIndex:
+                              type: integer
+                            image:
+                              type: string
+                              format: byte
+      responses:
+        '200':
+          description: Комикс успешно обновлен
+        '400':
+          description: Неверные входные данные
+        '401':
+          description: Пользователь не авторизован
+        '403':
+          description: Недостаточно прав для редактирования
+        '404':
+          description: Комикс не найден
+        '500':
+          description: Ошибка сервера
+
+    delete:
+      tags:
+        - Comics
+      summary: Удаление комикса
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Комикс успешно удален
+        '401':
+          description: Пользователь не авторизован
+        '403':
+          description: Недостаточно прав для удаления
+        '404':
+          description: Комикс не найден
+        '500':
+          description: Ошибка сервера
+
+  /api/mycomics:
+    get:
+      tags:
+        - Comics
+      summary: Получение списка комиксов текущего пользователя
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Список комиксов пользователя
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        text:
+                          type: string
+                        description:
+                          type: string
+                        creator:
+                          type: string
+        '500':
+          description: Ошибка сервера
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
