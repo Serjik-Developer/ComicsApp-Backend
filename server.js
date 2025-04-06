@@ -373,59 +373,61 @@ app.get('/api/comics/:id', async (req, res) => {
 // Обработчик для /api/comics
 app.post('/api/comics', async (req, res) => {
   if (req.user) {
-  const { comic, pages } = req.body;
-  
-  // Валидация входных данных
-  if (!comic || !pages) {
-    return res.status(400).json({ error: 'Необходимы comic и pages' });
-  }
+    const { comic } = req.body;
+    
+    // Валидация входных данных
+    if (!comic) {
+      return res.status(400).json({ error: 'Необходим объект comic' });
+    }
 
-  const client = await pool.connect();
-  
-  try {
-    await client.query('BEGIN');
+    const client = await pool.connect();
     
-    // Сохраняем комикс
-    await client.query(
-      'INSERT INTO comics (id, text, description, creator) VALUES ($1, $2, $3, $4)',
-      [comic.id, comic.text, comic.description, req.user.id]
-    );
-    
-    // Сохраняем страницы и изображения
-    for (const page of pages) {
+    try {
+      await client.query('BEGIN');
+      
+      // Сохраняем комикс
       await client.query(
-        'INSERT INTO pages (pageId, comicsId, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
-        [page.pageId, page.comicsId, page.number, page.rows, page.columns]
+        'INSERT INTO comics (id, text, description, creator) VALUES ($1, $2, $3, $4)',
+        [comic.id, comic.text, comic.description, req.user.id]
       );
       
-      for (const img of page.images) {
-        const imageBuffer = Buffer.from(img.image, 'base64');
-        await client.query(
-          'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
-          [img.id, page.pageId, img.cellIndex, imageBuffer]
-        );
+      // Сохраняем страницы и изображения из объекта comic.pages
+      if (comic.pages && Array.isArray(comic.pages)) {
+        for (const page of comic.pages) {
+          await client.query(
+            'INSERT INTO pages (pageId, comicsId, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
+            [page.pageId, page.comicsId, page.number, page.rows, page.columns]
+          );
+          
+          if (page.images && Array.isArray(page.images)) {
+            for (const img of page.images) {
+              const imageBuffer = Buffer.from(img.image, 'base64');
+              await client.query(
+                'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
+                [img.id, page.pageId, img.cellIndex, imageBuffer]
+              );
+            }
+          }
+        }
       }
       
+      await client.query('COMMIT');
+      
+      res.status(200).json({ message: 'Комикс сохранён!' });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('Ошибка сохранения комикса:', err);
+      res.status(500).json({ 
+        error: 'Ошибка сервера',
+        details: err.message 
+      });
+    } finally {
+      client.release();
     }
-    // Временно добавьте в POST /api/comics после сохранения:
-    await client.query('COMMIT');
-    
-    res.status(200).json({ message: 'Комикс сохранён!' });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Ошибка сохранения комикса:', err);
-    res.status(500).json({ 
-      error: 'Ошибка сервера',
-      details: err.message 
-    });
-  } finally {
-    client.release();
   }
-}
-else
-return res
-    .status(401)
-    .json({ message: 'Not authorized' })
+  else {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
 });
 
 app.put('/api/comics/:id', async (req, res) => {
