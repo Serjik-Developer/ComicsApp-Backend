@@ -362,10 +362,12 @@ app.get('/api/comics/:id', async (req, res) => {
           })
       );
 
-      // 4. Добавляем общее количество страниц в ответ
-      comic.totalPages = pagesQuery.rows.length;
-
-      res.status(200).json(comic);
+      res.status(200).json({
+          id: comic.id,
+          text: comic.text,
+          description: comic.description,
+          pages: comic.pages
+      });
 
   } catch (err) {
       console.error('Ошибка при получении комикса:', err);
