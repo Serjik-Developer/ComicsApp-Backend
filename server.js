@@ -412,17 +412,16 @@ app.post('/api/comics', async (req, res) => {
         );
         
         if (page.images) {
-          // Используем forEach вместо map, так как нам не нужен возвращаемый массив
-          page.images.forEach((img, index) => {
+          // Используем for...of вместо forEach для поддержки await
+          for (const [index, img] of page.images.entries()) {
             const imageId = crypto.randomUUID();
             const imageBuffer = Buffer.from(img.image, 'base64');
             
-            // Важно: используем index как cellIndex для текущей страницы
             await client.query(
               'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
-              [imageId, pageId, index, imageBuffer] // Используем index внутри страницы
+              [imageId, pageId, index, imageBuffer]
             );
-          });
+          }
         }
       }
       
