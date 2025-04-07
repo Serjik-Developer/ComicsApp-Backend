@@ -294,7 +294,7 @@ app.get('/api/comics', async(req, res) => {
   }
 });
 
-app.get('/api/comics', async(req, res) => {
+app.get('/api/mycomics', async(req, res) => {
   try {
       // Получаем все комиксы
       const comicsResult = await pool.query('SELECT id, text, description FROM comics WHERE creator = $1', [req.user.id]);
