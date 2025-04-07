@@ -328,17 +328,23 @@ app.get('/api/comics/:id', async (req, res) => {
 
       const comic = comicQuery.rows[0];
 
-      // 2. Get all pages for the comic
+      // 2. Get all pages for the comic with explicit ordering
       const pagesQuery = await client.query(
-          'SELECT pageid, comicsid, number, rows, columns FROM pages WHERE comicsid = $1 ORDER BY number ASC',
+          `SELECT pageid, comicsid, number, rows, columns 
+           FROM pages 
+           WHERE comicsid = $1 
+           ORDER BY number ASC`,  // Явная сортировка по номеру страницы
           [id]
       );
 
-      // 3. Get images for each page
+      // 3. Get images for each page with explicit ordering
       comic.pages = await Promise.all(
           pagesQuery.rows.map(async (page) => {
               const imagesQuery = await client.query(
-                  'SELECT id, cellindex, encode(image, \'base64\') as image FROM image WHERE pageid = $1 ORDER BY cellindex ASC',
+                  `SELECT id, cellindex, encode(image, 'base64') as image 
+                   FROM image 
+                   WHERE pageid = $1 
+                   ORDER BY cellindex ASC`,  // Явная сортировка изображений
                   [page.pageid]
               );
               
@@ -356,7 +362,9 @@ app.get('/api/comics/:id', async (req, res) => {
           })
       );
 
-      // Send the complete response once
+      // 4. Добавляем общее количество страниц в ответ
+      comic.totalPages = pagesQuery.rows.length;
+
       res.status(200).json(comic);
 
   } catch (err) {
