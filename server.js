@@ -18,7 +18,6 @@ const poolConfig = {
   }
 };
 
-
 const pool = new Pool(poolConfig);
 
 // Улучшенная проверка подключения
@@ -415,6 +414,56 @@ app.get('/api/comics/:id', async (req, res) => {
   }
 });
 
+app.post('/api/comics/pages/:comicsId', async(req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+  const { rows, columns } = req.body;
+  const { comicsId } = req.params;
+  if (!rows || !columns || !comicsId) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  const client = await pool.connect()
+  const pageId = crypto.randomUUID()
+  try {
+    await client.query('BEGIN')
+    const creatorCheck = await client.query(
+      'SELECT creator FROM comics WHERE id = $1',
+      [comicsId]
+    );
+
+    if (creatorCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Комикс не найден' });
+    }
+
+    if (creatorCheck.rows[0].creator !== req.user.id) {
+      return res.status(403).json({ message: 'Недостаточно прав для редактирования' });
+    }
+    
+    const pageCount = await pool.query('SELECT COUNT(*) FROM pages WHERE comicsId = $1', [comicsId])
+    const pageNumber = parseInt(pageCount.rows[0].count, 10)
+    await client.query(
+      'INSERT INTO pages (pageId, comicsId, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
+      [pageId, comicsId, pageNumber, rows, columns]
+    );
+    await client.query('COMMIT');
+    res.status(200).json({ 
+      message: 'Страница добавлена!'
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Ошибка добавления страницы', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  } finally {
+    client.release();
+  }
+}
+
+
+)
 app.post('/api/comics', async (req, res) => {
   if (req.user) {
     const { text, description, pages } = req.body;
