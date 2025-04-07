@@ -1,4 +1,5 @@
 require('dotenv').config();
+const crypto = require('crypto');
 const express = require('express');
 const { Pool } = require('pg');
 const app = express();
@@ -372,10 +373,10 @@ app.get('/api/comics/:id', async (req, res) => {
 
 app.post('/api/comics', async (req, res) => {
   if (req.user) {
-    const { id, text, description, pages } = req.body;
+    const { text, description, pages } = req.body;
     
     // Validation
-    if (!id || !text || !description || !pages) {
+    if (!text || !description || !pages) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
@@ -384,34 +385,42 @@ app.post('/api/comics', async (req, res) => {
     try {
       await client.query('BEGIN');
       
+      // Generate new IDs
+      const comicId = crypto.randomUUID();
+      
       // Save comic
       await client.query(
         'INSERT INTO comics (id, text, description, creator) VALUES ($1, $2, $3, $4)',
-        [id, text, description, req.user.id]
+        [comicId, text, description, req.user.id]
       );
       
       // Save pages and images
       for (const page of pages) {
+        const pageId = crypto.randomUUID();
+        
         await client.query(
           'INSERT INTO pages (pageId, comicsId, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
-          [page.pageId, id, page.number, page.rows, page.columns]
+          [pageId, comicId, page.number, page.rows, page.columns]
         );
         
         if (page.images) {
-          for (const img of page.images) {
-            const imageBuffer = Buffer.from(img.image, 'base64');
-            // Generate new UUID for each image
+          for (const [index, img] of page.images.entries()) {
             const imageId = crypto.randomUUID();
+            const imageBuffer = Buffer.from(img.image, 'base64');
+            
             await client.query(
               'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
-              [imageId, page.pageId, img.cellIndex, imageBuffer] // Use the new ID
+              [imageId, pageId, index, imageBuffer] // Using index as cellIndex if not provided
             );
           }
         }
       }
       
       await client.query('COMMIT');
-      res.status(200).json({ message: 'Комикс сохранён!' });
+      res.status(200).json({ 
+        message: 'Комикс сохранён!',
+        comicId: comicId 
+      });
     } catch (err) {
       await client.query('ROLLBACK');
       console.error('Ошибка сохранения комикса:', err);
