@@ -18,6 +18,7 @@ const poolConfig = {
   }
 };
 
+
 const pool = new Pool(poolConfig);
 
 // Улучшенная проверка подключения
