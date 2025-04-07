@@ -414,6 +414,69 @@ app.get('/api/comics/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/comics/pages/:pageId', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { pageId } = req.params;
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const comicCheck = await client.query(
+      `SELECT c.id, c.creator 
+       FROM comics c
+       JOIN pages p ON p.comicsid = c.id
+       WHERE p.pageid = $1`,
+      [pageId]
+    );
+
+    if (comicCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Страница не найдена' });
+    }
+
+    const comic = comicCheck.rows[0];
+
+    if (comic.creator !== req.user.id) {
+      return res.status(403).json({ message: 'Недостаточно прав для удаления' });
+    }
+
+    await client.query('DELETE FROM pages WHERE pageid = $1', [pageId]);
+
+    const remainingPages = await client.query(
+      'SELECT pageid, number FROM pages WHERE comicsid = $1 ORDER BY number ASC',
+      [comic.id]
+    );
+
+    for (let i = 0; i < remainingPages.rows.length; i++) {
+      if (remainingPages.rows[i].number !== i) {
+        await client.query(
+          'UPDATE pages SET number = $1 WHERE pageid = $2',
+          [i, remainingPages.rows[i].pageid]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    res.status(200).json({ 
+      success: true,
+      message: 'Страница успешно удалена' 
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Ошибка при удалении страницы:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Ошибка сервера при удалении страницы',
+      details: err.message
+    });
+  } finally {
+    client.release();
+  }
+});
+
 app.post('/api/comics/pages/:comicsId', async(req, res) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
