@@ -6,6 +6,8 @@ info:
 servers:
   - url: http://localhost:3000
     description: Локальный сервер разработки
+  - url: https://your-production-server.com
+    description: Продакшен сервер
 
 tags:
   - name: Authentication
@@ -14,6 +16,10 @@ tags:
     description: Операции с пользователями
   - name: Comics
     description: Управление комиксами
+  - name: Pages
+    description: Управление страницами комиксов
+  - name: System
+    description: Системные endpoints
 
 paths:
   /health:
@@ -161,12 +167,12 @@ paths:
     get:
       tags:
         - Comics
-      summary: Получение списка всех комиксов
+      summary: Получение списка всех комиксов с превью
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Список комиксов
+          description: Список комиксов с первой картинкой каждого
           content:
             application/json:
               schema:
@@ -199,47 +205,45 @@ paths:
             schema:
               type: object
               required:
-                - comic
+                - text
+                - description
+                - pages
               properties:
-                comic:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    text:
-                      type: string
-                    description:
-                      type: string
-                    pages:
-                      type: array
-                      items:
-                        type: object
-                        properties:
-                          pageId:
-                            type: string
-                          comicsId:
-                            type: string
-                          number:
-                            type: integer
-                          rows:
-                            type: integer
-                          columns:
-                            type: integer
-                          images:
-                            type: array
-                            items:
-                              type: object
-                              properties:
-                                id:
-                                  type: string
-                                cellIndex:
-                                  type: integer
-                                image:
-                                  type: string
-                                  format: byte
+                text:
+                  type: string
+                description:
+                  type: string
+                pages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      number:
+                        type: integer
+                      rows:
+                        type: integer
+                      columns:
+                        type: integer
+                      images:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            image:
+                              type: string
+                              format: byte
       responses:
         '200':
           description: Комикс успешно создан
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  comicId:
+                    type: string
         '400':
           description: Неверные входные данные
         '401':
@@ -251,7 +255,7 @@ paths:
     get:
       tags:
         - Comics
-      summary: Получение информации о конкретном комиксе
+      summary: Получение полной информации о конкретном комиксе
       security:
         - bearerAuth: []
       parameters:
@@ -262,7 +266,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Информация о комиксе
+          description: Полная информация о комиксе
           content:
             application/json:
               schema:
@@ -273,8 +277,6 @@ paths:
                   text:
                     type: string
                   description:
-                    type: string
-                  creator:
                     type: string
                   pages:
                     type: array
@@ -402,30 +404,94 @@ paths:
     get:
       tags:
         - Comics
-      summary: Получение списка комиксов текущего пользователя
+      summary: Получение списка комиксов текущего пользователя с превью
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Список комиксов пользователя
+          description: Список комиксов пользователя с первой картинкой каждого
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  response:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        text:
-                          type: string
-                        description:
-                          type: string
-                        creator:
-                          type: string
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    text:
+                      type: string
+                    description:
+                      type: string
+                    image:
+                      type: string
+                      format: byte
+        '500':
+          description: Ошибка сервера
+
+  /api/comics/pages/{comicsId}:
+    post:
+      tags:
+        - Pages
+      summary: Добавление новой страницы в комикс
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: comicsId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - rows
+                - columns
+              properties:
+                rows:
+                  type: integer
+                columns:
+                  type: integer
+      responses:
+        '200':
+          description: Страница успешно добавлена
+        '400':
+          description: Неверные входные данные
+        '401':
+          description: Пользователь не авторизован
+        '403':
+          description: Недостаточно прав
+        '404':
+          description: Комикс не найден
+        '500':
+          description: Ошибка сервера
+
+  /api/comics/pages/{pageId}:
+    delete:
+      tags:
+        - Pages
+      summary: Удаление страницы из комикса
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: pageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Страница успешно удалена
+        '401':
+          description: Пользователь не авторизован
+        '403':
+          description: Недостаточно прав
+        '404':
+          description: Страница не найдена
         '500':
           description: Ошибка сервера
 
