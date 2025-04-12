@@ -525,7 +525,7 @@ app.post('/api/comics/pages/:comicsId', async(req, res) => {
   }
 })
 
-app.delete('/api.comics/pages/images/:imageId', async(req, res) => {
+app.delete('/api/comics/pages/images/:imageId', async(req, res) => {
   if(!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
   }
