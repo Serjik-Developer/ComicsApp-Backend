@@ -525,6 +525,56 @@ app.post('/api/comics/pages/:comicsId', async(req, res) => {
   }
 })
 
+app.delete('/api.comics/pages/images/:imageId', async(req, res) => {
+  if(!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const {imageId} = req.params;
+
+  if (!imageId) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    const checkQuery = await client.query(
+      `SELECT c.creator 
+       FROM comics c
+       JOIN pages p ON p.comicsid = c.id
+       JOIN image i ON i.pageid = p.pageid
+       WHERE i.id = $1`,
+      [imageId]
+    );
+
+    if (checkQuery.rows.length === 0) {
+      return res.status(404).json({ error: 'Изображение не найдено' });
+    }
+
+    if (checkQuery.rows[0].creator !== req.user.id) {
+      return res.status(403).json({ message: 'Недостаточно прав для удаления' });
+    }
+    await client.query('DELETE FROM image WHERE id = $1', [imageId]);
+    
+    await client.query('COMMIT');
+    res.status(200).json({ 
+      success: true,
+      message: 'Изображение успешно удалено'
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Ошибка при удалении изображения:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Ошибка сервера при удалении изображения',
+      details: err.message
+    });
+  } finally {
+    client.release();
+  }
+});
 app.post('/api/comics/pages/images/:pageId', async(req, res) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
@@ -542,8 +592,6 @@ app.post('/api/comics/pages/images/:pageId', async(req, res) => {
   
   try {
     await client.query('BEGIN');
-    
-    // 1. First verify the page exists and get its comic
     const pageCheck = await client.query(
       `SELECT p.comicsId, c.creator 
        FROM pages p
@@ -553,17 +601,13 @@ app.post('/api/comics/pages/images/:pageId', async(req, res) => {
     );
 
     if (pageCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Page not found' });
+      return res.status(404).json({ error: 'Страница не найдена' });
     }
 
     const comicData = pageCheck.rows[0];
-    
-    // 2. Verify the current user is the creator
     if (!comicData.creator || comicData.creator !== req.user.id) {
-      return res.status(403).json({ message: 'Insufficient permissions' });
+      return res.status(403).json({ message: 'Недостаточно прав для добавления' });
     }
-    
-    // 3. Insert the image
     await client.query(
       'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
       [imageId, pageId, cellIndex, image]
@@ -571,11 +615,11 @@ app.post('/api/comics/pages/images/:pageId', async(req, res) => {
     
     await client.query('COMMIT');
     res.status(200).json({ 
-      message: 'Image added successfully!'
+      message: 'Изображение успешно добавлено!'
     });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('Error adding image:', err);
+    console.error('Ошибка добавления изображения', err);
     res.status(500).json({ 
       error: 'Server error',
       details: err.message 
