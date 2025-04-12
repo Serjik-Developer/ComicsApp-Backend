@@ -1,11 +1,13 @@
 openapi: 3.0.0
 info:
   title: Comics API
-  description: API for managing comics, pages, and images with user authentication
+  description: API for managing comics, pages and images
   version: 1.0.0
 servers:
   - url: http://localhost:3000
     description: Local development server
+  - url: https://api.example.com
+    description: Production server
 
 components:
   securitySchemes:
@@ -20,24 +22,10 @@ components:
         id:
           type: string
           format: uuid
-          example: "550e8400-e29b-41d4-a716-446655440000"
         login:
           type: string
-          example: "user123"
         name:
           type: string
-          example: "John Doe"
-        password:
-          type: string
-          example: "securepassword123"
-    AuthResponse:
-      type: object
-      properties:
-        name:
-          type: string
-        token:
-          type: string
-          description: JWT token for authentication
     Comic:
       type: object
       properties:
@@ -51,10 +39,20 @@ components:
         creator:
           type: string
           format: uuid
-        pages:
-          type: array
-          items:
-            $ref: '#/components/schemas/Page'
+    ComicListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        description:
+          type: string
+        image:
+          type: string
+          format: base64
+          description: Base64 encoded image
     Page:
       type: object
       properties:
@@ -70,30 +68,63 @@ components:
           type: integer
         columns:
           type: integer
-        images:
-          type: array
-          items:
-            $ref: '#/components/schemas/Image'
     Image:
       type: object
       properties:
         id:
           type: string
           format: uuid
+        pageId:
+          type: string
+          format: uuid
         cellIndex:
           type: integer
         image:
           type: string
-          format: byte
-          description: Base64 encoded image
-    Error:
+          format: base64
+    ComicDetails:
+      allOf:
+        - $ref: '#/components/schemas/Comic'
+        - type: object
+          properties:
+            pages:
+              type: array
+              items:
+                type: object
+                properties:
+                  pageId:
+                    type: string
+                    format: uuid
+                  number:
+                    type: integer
+                  rows:
+                    type: integer
+                  columns:
+                    type: integer
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Image'
+    AuthResponse:
       type: object
       properties:
-        message:
+        name:
+          type: string
+        token:
+          type: string
+    ErrorResponse:
+      type: object
+      properties:
+        error:
           type: string
         details:
           type: string
-        error:
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
           type: string
 
 paths:
@@ -124,7 +155,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '400':
-          description: Missing login or password
+          description: Missing required fields
         '401':
           description: Invalid credentials
         '404':
@@ -160,12 +191,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  name:
-                    type: string
-                  token:
-                    type: string
+                $ref: '#/components/schemas/AuthResponse'
         '400':
           description: Missing required fields
         '409':
@@ -182,7 +208,7 @@ paths:
         - bearerAuth: []
       responses:
         '200':
-          description: User information
+          description: User info retrieved
           content:
             application/json:
               schema:
@@ -197,19 +223,16 @@ paths:
     get:
       tags:
         - Comics
-      summary: Get all comics
+      summary: Get list of all comics
       responses:
         '200':
           description: List of comics
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  response:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Comic'
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComicListItem'
         '500':
           description: Server error
     post:
@@ -225,20 +248,69 @@ paths:
             schema:
               type: object
               properties:
-                comic:
-                  $ref: '#/components/schemas/Comic'
+                text:
+                  type: string
+                description:
+                  type: string
                 pages:
                   type: array
                   items:
-                    $ref: '#/components/schemas/Page'
+                    type: object
+                    properties:
+                      number:
+                        type: integer
+                      rows:
+                        type: integer
+                      columns:
+                        type: integer
+                      images:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            image:
+                              type: string
+                              format: base64
               required:
-                - comic
+                - text
+                - description
                 - pages
       responses:
         '200':
-          description: Comic created successfully
+          description: Comic created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  comicId:
+                    type: string
+                    format: uuid
         '400':
-          description: Invalid input
+          description: Missing required fields
+        '401':
+          description: Not authorized
+        '500':
+          description: Server error
+
+  /api/mycomics:
+    get:
+      tags:
+        - Comics
+      summary: Get list of user's comics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of user's comics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComicListItem'
         '401':
           description: Not authorized
         '500':
@@ -248,25 +320,21 @@ paths:
     get:
       tags:
         - Comics
-      summary: Get comic by ID
+      summary: Get comic details
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
+            format: uuid
       responses:
         '200':
           description: Comic details
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  comic:
-                    $ref: '#/components/schemas/Comic'
+                $ref: '#/components/schemas/ComicDetails'
         '404':
           description: Comic not found
         '500':
@@ -283,6 +351,7 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -291,32 +360,55 @@ paths:
               type: object
               properties:
                 comic:
-                  $ref: '#/components/schemas/Comic'
+                  type: object
+                  properties:
+                    text:
+                      type: string
+                    description:
+                      type: string
                 pages:
                   type: array
                   items:
-                    $ref: '#/components/schemas/Page'
+                    type: object
+                    properties:
+                      pageId:
+                        type: string
+                        format: uuid
+                      number:
+                        type: integer
+                      rows:
+                        type: integer
+                      columns:
+                        type: integer
+                      images:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            cellIndex:
+                              type: integer
+                            image:
+                              type: string
+                              format: base64
               required:
                 - comic
                 - pages
       responses:
         '200':
-          description: Comic updated successfully
+          description: Comic updated
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
+                $ref: '#/components/schemas/SuccessResponse'
         '400':
-          description: Invalid input
+          description: Missing required fields
         '401':
           description: Not authorized
         '403':
-          description: Not enough permissions
+          description: Insufficient permissions
         '404':
           description: Comic not found
         '500':
@@ -333,15 +425,184 @@ paths:
           required: true
           schema:
             type: string
+            format: uuid
       responses:
         '200':
-          description: Comic deleted successfully
+          description: Comic deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
         '401':
           description: Not authorized
         '403':
-          description: Not enough permissions
+          description: Insufficient permissions
         '404':
           description: Comic not found
+        '500':
+          description: Server error
+
+  /api/comics/pages/{comicsId}:
+    post:
+      tags:
+        - Pages
+      summary: Add page to comic
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: comicsId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rows:
+                  type: integer
+                columns:
+                  type: integer
+              required:
+                - rows
+                - columns
+      responses:
+        '200':
+          description: Page added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          description: Missing required fields
+        '401':
+          description: Not authorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Comic not found
+        '500':
+          description: Server error
+
+  /api/comics/pages/{pageId}:
+    delete:
+      tags:
+        - Pages
+      summary: Delete page
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: pageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Page deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          description: Not authorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Page not found
+        '500':
+          description: Server error
+
+  /api/comics/pages/images/{pageId}:
+    post:
+      tags:
+        - Images
+      summary: Add image to page
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: pageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cellIndex:
+                  type: integer
+                image:
+                  type: string
+                  format: base64
+              required:
+                - cellIndex
+                - image
+      responses:
+        '200':
+          description: Image added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          description: Missing required fields
+        '401':
+          description: Not authorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Page not found
+        '500':
+          description: Server error
+
+  /api/comics/pages/images/{imageId}:
+    delete:
+      tags:
+        - Images
+      summary: Delete image
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Image deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Missing required fields
+        '401':
+          description: Not authorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Image not found
         '500':
           description: Server error
 
@@ -352,7 +613,7 @@ paths:
       summary: Health check
       responses:
         '200':
-          description: System is healthy
+          description: Server is healthy
           content:
             application/json:
               schema:
@@ -363,4 +624,15 @@ paths:
                   database:
                     type: string
         '500':
-          description: System is not healthy
+          description: Server is unhealthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  database:
+                    type: string
+                  error:
+                    type: string
