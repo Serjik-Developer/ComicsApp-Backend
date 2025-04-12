@@ -1,4 +1,5 @@
 require('dotenv').config();
+const crypto = require('crypto');
 const express = require('express');
 const { Pool } = require('pg');
 const app = express();
@@ -293,59 +294,95 @@ app.get('/api/comics', async(req, res) => {
   }
 });
 
-app.get('/api/mycomics', async (req, res) => {
-  const client = await pool.connect()
+app.get('/api/mycomics', async(req, res) => {
   try {
-    const result = await client.query('SELECT * FROM comics WHERE creator = $1', [req.user.id])
-    res.status(200).json({
-      response: result.rows
-    })
+      // Получаем все комиксы
+      const comicsResult = await pool.query('SELECT id, text, description FROM comics WHERE creator = $1', [req.user.id]);
+      
+      // Для каждого комикса находим первую картинку
+      const comicsWithImages = await Promise.all(
+          comicsResult.rows.map(async (comic) => {
+              // Находим первую страницу комикса
+              const firstPageResult = await pool.query(
+                  'SELECT pageid FROM pages WHERE comicsid = $1 ORDER BY number ASC LIMIT 1',
+                  [comic.id]
+              );
+              
+              let imageBase64 = null;
+              
+              if (firstPageResult.rows.length > 0) {
+                  const pageId = firstPageResult.rows[0].pageid;
+                  
+                  // Находим первую картинку на странице (сортировка по cellIndex)
+                  const firstImageResult = await pool.query(
+                      'SELECT encode(image, \'base64\') as image FROM image WHERE pageid = $1 ORDER BY cellindex ASC LIMIT 1',
+                      [pageId]
+                  );
+                  
+                  if (firstImageResult.rows.length > 0) {
+                      imageBase64 = firstImageResult.rows[0].image;
+                  }
+              }
+              
+              return {
+                  id: comic.id,
+                  text: comic.text,
+                  description: comic.description,
+                  image: imageBase64
+              };
+          })
+      );
+      
+      res.status(200).json(comicsWithImages);
   }
   catch (err) {
-    res.status(500).json({
-      response: "Ошибка получения списка комиксов"
-    })
+      console.error('Ошибка получения списка комиксов:', err);
+      res.status(500).json({
+          error: "Ошибка получения списка комиксов"
+      });
   }
-})
-
+});
 app.get('/api/comics/:id', async (req, res) => {
   const { id } = req.params;
   const client = await pool.connect();
 
   try {
-      // 1. Получаем данные комикса
+      // 1. Get comic data
       const comicQuery = await client.query(
           'SELECT id, text, description, creator FROM comics WHERE id = $1',
           [id]
       );
 
       if (comicQuery.rows.length === 0) {
-          return res.status(404).json({ 
-              success: false,
+          return res.status(404).json({
               error: 'Комикс не найден' 
           });
       }
 
       const comic = comicQuery.rows[0];
 
-      // 2. Получаем все страницы комикса
+      // 2. Get all pages for the comic with explicit ordering
       const pagesQuery = await client.query(
-          'SELECT pageid, comicsid, number, rows, columns FROM pages WHERE comicsid = $1 ORDER BY number ASC',
+          `SELECT pageid, comicsid, number, rows, columns 
+           FROM pages 
+           WHERE comicsid = $1 
+           ORDER BY number ASC`,  // Явная сортировка по номеру страницы
           [id]
       );
 
-      // 3. Для каждой страницы получаем изображения
+      // 3. Get images for each page with explicit ordering
       comic.pages = await Promise.all(
           pagesQuery.rows.map(async (page) => {
               const imagesQuery = await client.query(
-                  'SELECT id, cellindex, encode(image, \'base64\') as image FROM image WHERE pageid = $1 ORDER BY cellindex ASC',
+                  `SELECT id, cellindex, encode(image, 'base64') as image 
+                   FROM image 
+                   WHERE pageid = $1 
+                   ORDER BY cellindex ASC`,  // Явная сортировка изображений
                   [page.pageid]
               );
               
               return {
-                  creator: comicQuery.rows[3],
                   pageId: page.pageid,
-                  comicsId: page.comicsid,
                   number: page.number,
                   rows: page.rows,
                   columns: page.columns,
@@ -358,9 +395,11 @@ app.get('/api/comics/:id', async (req, res) => {
           })
       );
 
-      res.json({
-          success: true,
-          comic
+      res.status(200).json({
+          id: comic.id,
+          text: comic.text,
+          description: comic.description,
+          pages: comic.pages
       });
 
   } catch (err) {
@@ -375,51 +414,108 @@ app.get('/api/comics/:id', async (req, res) => {
   }
 });
 
-
-// Обработчик для /api/comics
-app.post('/api/comics', async (req, res) => {
-  if (req.user) {
-  const { comic, pages } = req.body;
-  
-  // Валидация входных данных
-  if (!comic || !pages) {
-    return res.status(400).json({ error: 'Необходимы comic и pages' });
+app.delete('/api/comics/pages/:pageId', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
   }
 
+  const { pageId } = req.params;
   const client = await pool.connect();
-  
+
   try {
     await client.query('BEGIN');
-    
-    // Сохраняем комикс
-    await client.query(
-      'INSERT INTO comics (id, text, description, creator) VALUES ($1, $2, $3, $4)',
-      [comic.id, comic.text, comic.description, req.user.id]
+
+    const comicCheck = await client.query(
+      `SELECT c.id, c.creator 
+       FROM comics c
+       JOIN pages p ON p.comicsid = c.id
+       WHERE p.pageid = $1`,
+      [pageId]
     );
-    
-    // Сохраняем страницы и изображения
-    for (const page of pages) {
-      await client.query(
-        'INSERT INTO pages (pageId, comicsId, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
-        [page.pageId, page.comicsId, page.number, page.rows, page.columns]
-      );
-      
-      for (const img of page.images) {
-        const imageBuffer = Buffer.from(img.image, 'base64');
+
+    if (comicCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Страница не найдена' });
+    }
+
+    const comic = comicCheck.rows[0];
+
+    if (comic.creator !== req.user.id) {
+      return res.status(403).json({ message: 'Недостаточно прав для удаления' });
+    }
+
+    await client.query('DELETE FROM pages WHERE pageid = $1', [pageId]);
+
+    const remainingPages = await client.query(
+      'SELECT pageid, number FROM pages WHERE comicsid = $1 ORDER BY number ASC',
+      [comic.id]
+    );
+
+    for (let i = 0; i < remainingPages.rows.length; i++) {
+      if (remainingPages.rows[i].number !== i) {
         await client.query(
-          'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
-          [img.id, page.pageId, img.cellIndex, imageBuffer]
+          'UPDATE pages SET number = $1 WHERE pageid = $2',
+          [i, remainingPages.rows[i].pageid]
         );
       }
-      
     }
-    // Временно добавьте в POST /api/comics после сохранения:
+
     await client.query('COMMIT');
-    
-    res.status(200).json({ message: 'Комикс сохранён!' });
+    res.status(200).json({ 
+      success: true,
+      message: 'Страница успешно удалена' 
+    });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('Ошибка сохранения комикса:', err);
+    console.error('Ошибка при удалении страницы:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Ошибка сервера при удалении страницы',
+      details: err.message
+    });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/comics/pages/:comicsId', async(req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+  const { rows, columns } = req.body;
+  const { comicsId } = req.params;
+  if (!rows || !columns || !comicsId) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  const client = await pool.connect()
+  const pageId = crypto.randomUUID()
+  try {
+    await client.query('BEGIN')
+    const creatorCheck = await client.query(
+      'SELECT creator FROM comics WHERE id = $1',
+      [comicsId]
+    );
+
+    if (creatorCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Комикс не найден' });
+    }
+
+    if (creatorCheck.rows[0].creator !== req.user.id) {
+      return res.status(403).json({ message: 'Недостаточно прав для редактирования' });
+    }
+    
+    const pageCount = await pool.query('SELECT COUNT(*) FROM pages WHERE comicsId = $1', [comicsId])
+    const pageNumber = parseInt(pageCount.rows[0].count, 10)
+    await client.query(
+      'INSERT INTO pages (pageId, comicsId, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
+      [pageId, comicsId, pageNumber, rows, columns]
+    );
+    await client.query('COMMIT');
+    res.status(200).json({ 
+      message: 'Страница добавлена!'
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Ошибка добавления страницы', err);
     res.status(500).json({ 
       error: 'Ошибка сервера',
       details: err.message 
@@ -427,11 +523,132 @@ app.post('/api/comics', async (req, res) => {
   } finally {
     client.release();
   }
-}
-else
-return res
-    .status(401)
-    .json({ message: 'Not authorized' })
+})
+
+app.post('/api/comics/pages/images/:pageId', async(req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+  
+  const { cellIndex, image } = req.body;
+  const { pageId } = req.params;
+  
+  if (!cellIndex || !image || !pageId) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  const client = await pool.connect();
+  const imageId = crypto.randomUUID();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // 1. First verify the page exists and get its comic
+    const pageCheck = await client.query(
+      `SELECT p.comicsId, c.creator 
+       FROM pages p
+       JOIN comics c ON p.comicsId = c.id
+       WHERE p.pageId = $1`,
+      [pageId]
+    );
+
+    if (pageCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Page not found' });
+    }
+
+    const comicData = pageCheck.rows[0];
+    
+    // 2. Verify the current user is the creator
+    if (!comicData.creator || comicData.creator !== req.user.id) {
+      return res.status(403).json({ message: 'Insufficient permissions' });
+    }
+    
+    // 3. Insert the image
+    await client.query(
+      'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
+      [imageId, pageId, cellIndex, image]
+    );
+    
+    await client.query('COMMIT');
+    res.status(200).json({ 
+      message: 'Image added successfully!'
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error adding image:', err);
+    res.status(500).json({ 
+      error: 'Server error',
+      details: err.message 
+    });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/comics', async (req, res) => {
+  if (req.user) {
+    const { text, description, pages } = req.body;
+    
+    // Validation
+    if (!text || !description || !pages) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+      
+      // Generate new IDs
+      const comicId = crypto.randomUUID();
+      
+      // Save comic
+      await client.query(
+        'INSERT INTO comics (id, text, description, creator) VALUES ($1, $2, $3, $4)',
+        [comicId, text, description, req.user.id]
+      );
+      
+      // Save pages and images
+      for (const page of pages) {
+        const pageId = crypto.randomUUID();
+        
+        await client.query(
+          'INSERT INTO pages (pageId, comicsId, number, rows, columns) VALUES ($1, $2, $3, $4, $5)',
+          [pageId, comicId, page.number, page.rows, page.columns]
+        );
+        
+        if (page.images) {
+          // Используем for...of вместо forEach для поддержки await
+          for (const [index, img] of page.images.entries()) {
+            const imageId = crypto.randomUUID();
+            const imageBuffer = Buffer.from(img.image, 'base64');
+            
+            await client.query(
+              'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
+              [imageId, pageId, index, imageBuffer]
+            );
+          }
+        }
+      }
+      
+      await client.query('COMMIT');
+      res.status(200).json({ 
+        message: 'Комикс сохранён!',
+        comicId: comicId 
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('Ошибка сохранения комикса:', err);
+      res.status(500).json({ 
+        error: 'Ошибка сервера',
+        details: err.message 
+      });
+    } finally {
+      client.release();
+    }
+  } else {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
 });
 
 app.put('/api/comics/:id', async (req, res) => {
