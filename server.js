@@ -590,7 +590,7 @@ app.put('/api/comics/pages/images/:imageId', async(req, res) => {
   const client = await pool.connect()
 
   try {
-    await.query('BEGIN')
+    await client.query('BEGIN')
       const checkQuery = await client.query(
       `SELECT c.creator 
        FROM comics c
