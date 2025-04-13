@@ -606,6 +606,51 @@ paths:
         '500':
           description: Server error
 
+  /api/comics/pages/images/{id}:
+    put:
+      tags:
+        - Images
+      summary: Update image
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: base64
+              required:
+                - cellIndex
+                - image
+      responses:
+        '200':
+          description: Image updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Missing required fields
+        '401':
+          description: Not authorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Image not found
+        '500':
+          description: Server error
+
   /health:
     get:
       tags:
