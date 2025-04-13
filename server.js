@@ -575,6 +575,56 @@ app.delete('/api/comics/pages/images/:imageId', async(req, res) => {
     client.release();
   }
 });
+
+app.put('/api/comics/pages/images/:imageId', async(req, res) => {
+  if(!req.user) {
+    return res.status(401).json({ message: 'Not authorized'})
+  }
+  const { image } = req.body
+  const { imageId } = req.params
+
+  if (!image || !imageId) {
+    return res.status(400).json( {message: 'Missing required fields' })
+  }
+
+  const client = await pool.connect()
+
+  try {
+    await.query('BEGIN')
+      const checkQuery = await client.query(
+      `SELECT c.creator 
+       FROM comics c
+       JOIN pages p ON p.comicsid = c.id
+       JOIN image i ON i.pageid = p.pageid
+       WHERE i.id = $1`,
+      [imageId]
+    );
+
+    if (checkQuery.rows.length === 0) {
+      return res.status(404).json({ error: 'Изображение не найдено' });
+    }
+
+    if (checkQuery.rows[0].creator !== req.user.id) {
+      return res.status(403).json({ message: 'Недостаточно прав для редактирования' });
+    }
+    await client.query('UPDATE image SET image = $1 WHERE id = $2', [image, imageId]);
+    await client.query('COMMIT')
+    res.status(200).json({ 
+      success: true,
+      message: 'Изображение успешно отредактировано!'
+    });
+  } catch(err) {
+    await client.query('ROLLBACK')
+        res.status(500).json({ 
+      success: false,
+      error: 'Ошибка сервера при редактировании изображения',
+      details: err.message
+    });
+  } finally {
+    client.release();
+  }
+    
+})
 app.post('/api/comics/pages/images/:pageId', async(req, res) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
