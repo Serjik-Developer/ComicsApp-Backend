@@ -495,6 +495,31 @@ paths:
           description: Server error
 
   /api/comics/pages/{pageId}:
+    get: 
+      tags:
+        - Pages
+      summary: Get images on page 
+      parameters:
+        - name: pageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Images on page retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Image'
+        '401': 
+          description: Not authorized
+        '500':
+          description: Server error
+
     delete:
       tags:
         - Pages
