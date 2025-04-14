@@ -414,6 +414,44 @@ app.get('/api/comics/:id', async (req, res) => {
   }
 });
 
+app.get('/api/comics/pages/:pageId', async(req, res) => {
+  if(!req.user) {
+    return res.status(401).json({ message: 'Not authorized'})
+  }
+
+  const {pageId} = req.params
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    
+    const imagesQuery = await client.query(
+      `SELECT id, cellindex, encode(image, 'base64') as image 
+       FROM image 
+       WHERE pageid = $1 
+       ORDER BY cellindex ASC`,  // Явная сортировка изображений
+      [pageId]
+    )
+
+    const response = imagesQuery.rows.map(img => ({
+      id: img.id,
+      cellIndex: img.cellindex,
+      image: img.image
+    }));
+
+    // Возвращаем массив напрямую
+    return res.status(200).json(response);
+  }catch (err) {
+    console.error('Ошибка при получении изображений страницы:', err);
+    res.status(500).json({ 
+        success: false,
+        error: 'Ошибка сервера при получении изображений страницы',
+        details: err.message
+    });
+} finally {
+    client.release();
+}
+})
+
 app.delete('/api/comics/pages/:pageId', async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
