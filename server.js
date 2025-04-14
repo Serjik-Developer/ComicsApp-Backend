@@ -424,32 +424,53 @@ app.get('/api/comics/pages/:pageId', async(req, res) => {
   try {
     await client.query('BEGIN')
     
+    // 1. Получаем информацию о странице
+    const pageQuery = await client.query(
+      `SELECT pageid, comicsid, number, rows, columns 
+       FROM pages 
+       WHERE pageid = $1`,
+      [pageId]
+    )
+
+    if (pageQuery.rows.length === 0) {
+      return res.status(404).json({ error: 'Страница не найдена' })
+    }
+
+    const pageInfo = pageQuery.rows[0]
+
+    // 2. Получаем изображения для страницы
     const imagesQuery = await client.query(
       `SELECT id, cellindex, encode(image, 'base64') as image 
        FROM image 
        WHERE pageid = $1 
-       ORDER BY cellindex ASC`,  // Явная сортировка изображений
+       ORDER BY cellindex ASC`,
       [pageId]
     )
 
-    const response = imagesQuery.rows.map(img => ({
-      id: img.id,
-      cellIndex: img.cellindex,
-      image: img.image
-    }));
+    // 3. Формируем ответ
+    const response = {
+      pageId: pageInfo.pageid,
+      number: pageInfo.number,
+      rows: pageInfo.rows,
+      columns: pageInfo.columns,
+      images: imagesQuery.rows.map(img => ({
+        id: img.id,
+        cellIndex: img.cellindex,
+        image: img.image
+      }))
+    }
 
-    // Возвращаем массив напрямую
     return res.status(200).json(response);
-  }catch (err) {
-    console.error('Ошибка при получении изображений страницы:', err);
+  } catch (err) {
+    console.error('Ошибка при получении страницы:', err);
     res.status(500).json({ 
         success: false,
-        error: 'Ошибка сервера при получении изображений страницы',
+        error: 'Ошибка сервера при получении страницы',
         details: err.message
     });
-} finally {
+  } finally {
     client.release();
-}
+  }
 })
 
 app.delete('/api/comics/pages/:pageId', async (req, res) => {
