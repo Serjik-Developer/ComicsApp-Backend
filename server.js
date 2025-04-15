@@ -56,7 +56,8 @@ async function createTables() {
         id TEXT PRIMARY KEY,
         text TEXT,
         description TEXT,
-        creator TEXT
+        creator TEXT,
+        hash TEXT
       );
       
       CREATE TABLE IF NOT EXISTS pages (
@@ -86,6 +87,18 @@ async function createTables() {
     console.error('❌ Ошибка создания таблиц:', err.message);
   }
 }
+async function addHashColumnIfNotExists() {
+  try {
+    await pool.query(`
+      ALTER TABLE comics 
+      ADD COLUMN IF NOT EXISTS hash TEXT;
+    `);
+    console.log('✅ Колонка hash проверена/добавлена');
+  } catch (err) {
+    console.error('❌ Ошибка добавления колонки hash:', err.message);
+  }
+}
+
 
 app.use(async (req, res, next) => {
   if (req.path === '/api/user/auth' || req.path === '/api/user/register' || req.path === '/health') {
@@ -741,27 +754,34 @@ app.post('/api/comics/pages/images/:pageId', async(req, res) => {
 app.post('/api/comics', async (req, res) => {
   if (req.user) {
     const { text, description, pages } = req.body;
-    
-    // Validation
     if (!text || !description || !pages) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+    const hash = crypto.createHash('sha256');
+    hash.update(JSON.stringify({ text, description, pages }));
+    const comicHash = hash.digest('hex');
 
     const client = await pool.connect();
     
     try {
       await client.query('BEGIN');
-      
-      // Generate new IDs
-      const comicId = crypto.randomUUID();
-      
-      // Save comic
-      await client.query(
-        'INSERT INTO comics (id, text, description, creator) VALUES ($1, $2, $3, $4)',
-        [comicId, text, description, req.user.id]
+      const existingComic = await client.query(
+        'SELECT id FROM comics WHERE creator = $1 AND hash = $2',
+        [req.user.id, comicHash]
       );
-      
-      // Save pages and images
+
+      if (existingComic.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ 
+          error: 'Комикс с таким же содержанием уже существует',
+          existingId: existingComic.rows[0].id
+        });
+      }
+      const comicId = crypto.randomUUID();
+      await client.query(
+        'INSERT INTO comics (id, text, description, creator, hash) VALUES ($1, $2, $3, $4, $5)',
+        [comicId, text, description, req.user.id, comicHash]
+      );
       for (const page of pages) {
         const pageId = crypto.randomUUID();
         
@@ -771,7 +791,6 @@ app.post('/api/comics', async (req, res) => {
         );
         
         if (page.images) {
-          // Используем for...of вместо forEach для поддержки await
           for (const [index, img] of page.images.entries()) {
             const imageId = crypto.randomUUID();
             const imageBuffer = Buffer.from(img.image, 'base64');
@@ -929,7 +948,7 @@ async function startServer() {
     }
   
     await createTables();
-    
+    await addHashColumnIfNotExists();
     app.listen(port, '0.0.0.0', () => {
       console.log(`🚀 Сервер запущен на ${port} порту`);
     });
