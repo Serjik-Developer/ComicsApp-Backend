@@ -81,6 +81,13 @@ async function createTables() {
         password TEXT,
         name TEXT
       );
+      
+      CREATE TABLE IF NOT EXISTS login_attempts (
+        login TEXT PRIMARY KEY,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_attempt TIMESTAMP WITH TIME ZONE,
+        blocked_until TIMESTAMP WITH TIME ZONE
+      );
     `);
     console.log('✅ Таблицы созданы/проверены');
   } catch (err) {
@@ -96,6 +103,41 @@ async function addHashColumnIfNotExists() {
     console.log('✅ Колонка hash проверена/добавлена');
   } catch (err) {
     console.error('❌ Ошибка добавления колонки hash:', err.message);
+  }
+}
+async function trackFailedAttempt(login) {
+  const client = await pool.connect();
+  try {
+      await client.query('BEGIN');
+      
+      // Увеличиваем счетчик попыток
+      const result = await client.query(
+          `INSERT INTO login_attempts (login, attempts, last_attempt)
+           VALUES ($1, 1, NOW())
+           ON CONFLICT (login) 
+           DO UPDATE SET attempts = login_attempts.attempts + 1, last_attempt = NOW()
+           RETURNING attempts`,
+          [login]
+      );
+      
+      const attempts = result.rows[0].attempts;
+      
+      // Если достигли 5 попыток, блокируем на 1 минуту
+      if (attempts >= 5) {
+          await client.query(
+              `UPDATE login_attempts 
+               SET blocked_until = NOW() + INTERVAL '1 minute'
+               WHERE login = $1`,
+              [login]
+          );
+      }
+      
+      await client.query('COMMIT');
+  } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('Error tracking failed attempt:', err);
+  } finally {
+      client.release();
   }
 }
 
@@ -157,14 +199,36 @@ app.post('/api/user/auth', async(req, res) => {
       if (!login || !password) {
           return res.status(400).json({ message: 'Login and password are required' });
       }
+      const loginAttemptsKey = `login_attempts:${login}`;
+      const isBlocked = await pool.query(
+          'SELECT blocked_until FROM login_attempts WHERE login = $1 AND blocked_until > NOW()',
+          [login]
+      );
+
+      if (isBlocked.rows.length > 0) {
+          const blockedUntil = new Date(isBlocked.rows[0].blocked_until);
+          const remainingTime = Math.ceil((blockedUntil - new Date()) / 5000);
+          return res.status(429).json({ 
+              message: `Too many attempts. Try again in ${remainingTime} seconds.`
+          });
+      }
+
       const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
       if (result.rows.length === 0) {
+          await trackFailedAttempt(login);
           return res.status(404).json({ message: 'User not found' });
       }
+
       const user = result.rows[0];
       if (user.password !== password) {
+          await trackFailedAttempt(login);
           return res.status(401).json({ message: 'Invalid password' });
       }
+      await pool.query(
+          'DELETE FROM login_attempts WHERE login = $1',
+          [login]
+      );
+
       const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
       
       return res.status(200).json({
