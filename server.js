@@ -126,7 +126,7 @@ async function trackFailedAttempt(login) {
       if (attempts >= 5) {
           await client.query(
               `UPDATE login_attempts 
-               SET blocked_until = NOW() + INTERVAL '1 minute'
+               SET blocked_until = NOW() + INTERVAL '5 minute'
                WHERE login = $1`,
               [login]
           );
