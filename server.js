@@ -712,18 +712,18 @@ app.put('/api/comics/pages/images/:imageId', async(req, res) => {
   if(!req.user) {
     return res.status(401).json({ message: 'Not authorized'})
   }
-  const { image } = req.body
-  const { imageId } = req.params
+  const { image } = req.body;
+  const { imageId } = req.params;
 
   if (!image || !imageId) {
-    return res.status(400).json( {message: 'Missing required fields' })
+    return res.status(400).json({message: 'Missing required fields'});
   }
 
-  const client = await pool.connect()
+  const client = await pool.connect();
 
   try {
-    await client.query('BEGIN')
-      const checkQuery = await client.query(
+    await client.query('BEGIN');
+    const checkQuery = await client.query(
       `SELECT c.creator 
        FROM comics c
        JOIN pages p ON p.comicsid = c.id
@@ -739,15 +739,22 @@ app.put('/api/comics/pages/images/:imageId', async(req, res) => {
     if (checkQuery.rows[0].creator !== req.user.id) {
       return res.status(403).json({ message: 'Недостаточно прав для редактирования' });
     }
-    await client.query('UPDATE image SET image = $1 WHERE id = $2', [image, imageId]);
-    await client.query('COMMIT')
+    const imageBuffer = Buffer.from(image, 'base64');
+    
+    await client.query(
+      'UPDATE image SET image = $1 WHERE id = $2',
+      [imageBuffer, imageId]
+    );
+    
+    await client.query('COMMIT');
     res.status(200).json({ 
       success: true,
-      message: 'Изображение успешно отредактировано!'
+      message: 'Изображение успешно обновлено!'
     });
   } catch(err) {
-    await client.query('ROLLBACK')
-        res.status(500).json({ 
+    await client.query('ROLLBACK');
+    console.error('Ошибка при обновлении изображения:', err);
+    res.status(500).json({ 
       success: false,
       error: 'Ошибка сервера при редактировании изображения',
       details: err.message
@@ -755,8 +762,7 @@ app.put('/api/comics/pages/images/:imageId', async(req, res) => {
   } finally {
     client.release();
   }
-    
-})
+});
 app.post('/api/comics/pages/images/:pageId', async(req, res) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
@@ -790,14 +796,17 @@ app.post('/api/comics/pages/images/:pageId', async(req, res) => {
     if (!comicData.creator || comicData.creator !== req.user.id) {
       return res.status(403).json({ message: 'Недостаточно прав для добавления' });
     }
+    const imageBuffer = Buffer.from(image, 'base64');
+    
     await client.query(
       'INSERT INTO image (id, pageId, cellIndex, image) VALUES ($1, $2, $3, $4)',
-      [imageId, pageId, cellIndex, image]
+      [imageId, pageId, cellIndex, imageBuffer] 
     );
     
     await client.query('COMMIT');
     res.status(200).json({ 
-      message: 'Изображение успешно добавлено!'
+      message: 'Изображение успешно добавлено!',
+      imageId: imageId
     });
   } catch (err) {
     await client.query('ROLLBACK');
