@@ -109,8 +109,6 @@ async function trackFailedAttempt(login) {
   const client = await pool.connect();
   try {
       await client.query('BEGIN');
-      
-      // Увеличиваем счетчик попыток
       const result = await client.query(
           `INSERT INTO login_attempts (login, attempts, last_attempt)
            VALUES ($1, 1, NOW())
@@ -121,12 +119,10 @@ async function trackFailedAttempt(login) {
       );
       
       const attempts = result.rows[0].attempts;
-      
-      // Если достигли 5 попыток, блокируем на 1 минуту
       if (attempts >= 5) {
           await client.query(
               `UPDATE login_attempts 
-               SET blocked_until = NOW() + INTERVAL '5 minute'
+               SET blocked_until = NOW() + INTERVAL '1 minute'
                WHERE login = $1`,
               [login]
           );
@@ -207,7 +203,7 @@ app.post('/api/user/auth', async(req, res) => {
 
       if (isBlocked.rows.length > 0) {
           const blockedUntil = new Date(isBlocked.rows[0].blocked_until);
-          const remainingTime = Math.ceil((blockedUntil - new Date()) / 5000);
+          const remainingTime = Math.ceil((blockedUntil - new Date()) / 1000);
           return res.status(429).json({ 
               message: `Too many attempts. Try again in ${remainingTime} seconds.`
           });
