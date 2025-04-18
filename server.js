@@ -771,7 +771,7 @@ app.post('/api/comics/pages/images/:pageId', async(req, res) => {
   const { cellIndex, image } = req.body;
   const { pageId } = req.params;
   
-  if (!cellIndex || !image || !pageId) {
+  if (cellIndex === undefined || cellIndex === null || !image || !pageId) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
