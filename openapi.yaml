@@ -678,6 +678,167 @@ paths:
         '500':
           description: Server error
 
+  /api/comics/{id}/like:
+    post:
+      tags:
+        - Likes
+      summary: Toggle like for comic
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Like status toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  liked:
+                    type: boolean
+        '401':
+          description: Not authorized
+        '404':
+          description: Comic not found
+        '500':
+          description: Server error
+    get:
+      tags:
+        - Likes
+      summary: Check if comic is liked by user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Like status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  liked:
+                    type: boolean
+        '401':
+          description: Not authorized
+        '500':
+          description: Server error
+
+  /api/comics/{id}/likes/count:
+    get:
+      tags:
+        - Likes
+      summary: Get comic likes count
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Likes count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+        '500':
+          description: Server error
+
+  /api/comics/{id}/favorite:
+    post:
+      tags:
+        - Favorites
+      summary: Toggle favorite status for comic
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Favorite status toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  favorited:
+                    type: boolean
+        '401':
+          description: Not authorized
+        '404':
+          description: Comic not found
+        '500':
+          description: Server error
+    get:
+      tags:
+        - Favorites
+      summary: Check if comic is in favorites
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Favorite status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  favorited:
+                    type: boolean
+        '401':
+          description: Not authorized
+        '500':
+          description: Server error
+
+  /api/user/favorites:
+    get:
+      tags:
+        - Favorites
+      summary: Get user's favorite comics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of favorite comics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComicListItem'
+        '401':
+          description: Not authorized
+        '500':
+          description: Server error
   /health:
     get:
       tags:
