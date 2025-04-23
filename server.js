@@ -88,6 +88,18 @@ async function createTables() {
         last_attempt TIMESTAMP WITH TIME ZONE,
         blocked_until TIMESTAMP WITH TIME ZONE
       );
+
+      CREATE TABLE IF NOT EXISTS likes (
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        comic_id TEXT REFERENCES comics(id) ON DELETE CASCADE,
+        PRIMARY KEY (user_id, comic_id)
+      );
+      
+      CREATE TABLE IF NOT EXISTS favorites (
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        comic_id TEXT REFERENCES comics(id) ON DELETE CASCADE,
+        PRIMARY KEY (user_id, comic_id)
+      );
     `);
     console.log('✅ Таблицы созданы/проверены');
   } catch (err) {
@@ -991,7 +1003,185 @@ app.put('/api/comics/:id', async (req, res) => {
   }
 });
 
-// Проверка работы сервера
+app.post('/api/comics/:id/like', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { id } = req.params;
+  
+  try {
+    const comicCheck = await pool.query('SELECT 1 FROM comics WHERE id = $1', [id]);
+    if (comicCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Комикс не найден' });
+    }
+
+    const likeCheck = await pool.query(
+      'SELECT 1 FROM likes WHERE user_id = $1 AND comic_id = $2',
+      [req.user.id, id]
+    );
+
+    if (likeCheck.rows.length > 0) {
+      await pool.query(
+        'DELETE FROM likes WHERE user_id = $1 AND comic_id = $2',
+        [req.user.id, id]
+      );
+      return res.status(200).json({ liked: false });
+    } else {
+      await pool.query(
+        'INSERT INTO likes (user_id, comic_id) VALUES ($1, $2)',
+        [req.user.id, id]
+      );
+      return res.status(200).json({ liked: true });
+    }
+  } catch (err) {
+    console.error('Ошибка при обработке лайка:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.get('/api/comics/:id/like', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { id } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'SELECT 1 FROM likes WHERE user_id = $1 AND comic_id = $2',
+      [req.user.id, id]
+    );
+    
+    res.status(200).json({ liked: result.rows.length > 0 });
+  } catch (err) {
+    console.error('Ошибка при проверке лайка:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.get('/api/comics/:id/likes/count', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'SELECT COUNT(*) FROM likes WHERE comic_id = $1',
+      [id]
+    );
+    
+    res.status(200).json({ count: parseInt(result.rows[0].count, 10) });
+  } catch (err) {
+    console.error('Ошибка при получении количества лайков:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.post('/api/comics/:id/favorite', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { id } = req.params;
+  
+  try {
+    const comicCheck = await pool.query('SELECT 1 FROM comics WHERE id = $1', [id]);
+    if (comicCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Комикс не найден' });
+    }
+
+    const favCheck = await pool.query(
+      'SELECT 1 FROM favorites WHERE user_id = $1 AND comic_id = $2',
+      [req.user.id, id]
+    );
+
+    if (favCheck.rows.length > 0) {
+      await pool.query(
+        'DELETE FROM favorites WHERE user_id = $1 AND comic_id = $2',
+        [req.user.id, id]
+      );
+      return res.status(200).json({ favorited: false });
+    } else {
+      await pool.query(
+        'INSERT INTO favorites (user_id, comic_id) VALUES ($1, $2)',
+        [req.user.id, id]
+      );
+      return res.status(200).json({ favorited: true });
+    }
+  } catch (err) {
+    console.error('Ошибка при обработке избранного:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.get('/api/comics/:id/favorite', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { id } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'SELECT 1 FROM favorites WHERE user_id = $1 AND comic_id = $2',
+      [req.user.id, id]
+    );
+    
+    res.status(200).json({ favorited: result.rows.length > 0 });
+  } catch (err) {
+    console.error('Ошибка при проверке избранного:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.get('/api/user/favorites', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  try {
+    const result = await pool.query(`
+      SELECT 
+        c.id, 
+        c.text, 
+        c.description,
+        (
+          SELECT encode(i.image, 'base64') as image
+          FROM pages p
+          JOIN image i ON i.pageid = p.pageid
+          WHERE p.comicsid = c.id AND i.cellindex = 0
+          ORDER BY p.number
+          LIMIT 1
+        ) as image
+      FROM comics c
+      JOIN favorites f ON f.comic_id = c.id
+      WHERE f.user_id = $1
+    `, [req.user.id]);
+
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Ошибка при получении избранного:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -1008,7 +1198,6 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// Инициализация сервера
 async function startServer() {
     const isConnected = await checkDatabaseConnection();
     if (!isConnected) {
