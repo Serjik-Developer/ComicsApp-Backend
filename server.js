@@ -100,6 +100,14 @@ async function createTables() {
         comic_id TEXT REFERENCES comics(id) ON DELETE CASCADE,
         PRIMARY KEY (user_id, comic_id)
       );
+
+      CREATE TABLE IF NOT EXISTS comments (
+        id TEXT PRIMARY KEY,
+        comic_id TEXT REFERENCES comics(id) ON DELETE CASCADE,
+        user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
     `);
     console.log('✅ Таблицы созданы/проверены');
   } catch (err) {
@@ -1175,6 +1183,215 @@ app.get('/api/user/favorites', async (req, res) => {
     res.status(200).json(result.rows);
   } catch (err) {
     console.error('Ошибка при получении избранного:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.get('/api/comics/:comicsId/info', async (req, res) => {
+  const { comicsId } = req.params;
+  const userId = req.user?.id;
+
+  try {
+    const client = await pool.connect();
+    
+    try {
+      const comicInfo = await client.query(
+        `SELECT id, text, description, creator 
+         FROM comics 
+         WHERE id = $1`,
+        [comicsId]
+      );
+
+      if (comicInfo.rows.length === 0) {
+        return res.status(404).json({ error: 'Комикс не найден' });
+      }
+
+      const comic = comicInfo.rows[0];
+
+      const firstPageResult = await client.query(
+        `SELECT pageid, number, rows, columns
+         FROM pages 
+         WHERE comicsid = $1
+         ORDER BY number ASC
+         LIMIT 1`,
+        [comicsId]
+      );
+
+      let firstPage = null;
+      if (firstPageResult.rows.length > 0) {
+        const page = firstPageResult.rows[0];
+        
+        const imagesResult = await client.query(
+          `SELECT id, cellindex, encode(image, 'base64') as image
+           FROM image 
+           WHERE pageid = $1
+           ORDER BY cellindex ASC`,
+          [page.pageid]
+        );
+
+        firstPage = {
+          pageId: page.pageid,
+          number: page.number,
+          rows: page.rows,
+          columns: page.columns,
+          images: imagesResult.rows.map(img => ({
+            id: img.id,
+            cellIndex: img.cellindex,
+            image: img.image
+          }))
+        };
+      }
+
+      const likesCount = await client.query(
+        `SELECT COUNT(*) as count 
+         FROM likes 
+         WHERE comic_id = $1`,
+        [comicsId]
+      );
+      let userLiked = false;
+      if (userId) {
+        const likeCheck = await client.query(
+          `SELECT 1 
+           FROM likes 
+           WHERE user_id = $1 AND comic_id = $2`,
+          [userId, comicsId]
+        );
+        userLiked = likeCheck.rows.length > 0;
+      }
+
+      let userFavorited = false;
+      if (userId) {
+        const favoriteCheck = await client.query(
+          `SELECT 1 
+           FROM favorites 
+           WHERE user_id = $1 AND comic_id = $2`,
+          [userId, comicsId]
+        );
+        userFavorited = favoriteCheck.rows.length > 0;
+      }
+
+      const comments = await client.query(
+        `SELECT c.id, c.text, c.created_at, u.id as user_id, u.name as user_name
+         FROM comments c
+         JOIN users u ON c.user_id = u.id
+         WHERE c.comic_id = $1
+         ORDER BY c.created_at DESC`,
+        [comicsId]
+      );
+
+      const response = {
+        id: comic.id,
+        text: comic.text,
+        description: comic.description,
+        creator: comic.creator,
+        firstPage: firstPage,
+        likesCount: parseInt(likesCount.rows[0].count, 10),
+        userLiked,
+        userFavorited,
+        comments: comments.rows
+      };
+
+      res.status(200).json(response);
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('Ошибка при получении информации о комиксе:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.post('/api/comics/:comicsId/comments', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { comicsId } = req.params;
+  const { text } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'Текст комментария обязателен' });
+  }
+
+  try {
+    const client = await pool.connect();
+    
+    try {
+      const comicCheck = await client.query(
+        'SELECT 1 FROM comics WHERE id = $1',
+        [comicsId]
+      );
+
+      if (comicCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Комикс не найден' });
+      }
+
+      const commentId = crypto.randomUUID();
+      
+      await client.query(
+        'INSERT INTO comments (id, comic_id, user_id, text) VALUES ($1, $2, $3, $4)',
+        [commentId, comicsId, req.user.id, text]
+      );
+
+      const newComment = await client.query(
+        `SELECT c.id, c.text, c.created_at, u.id as user_id, u.name as user_name
+         FROM comments c
+         JOIN users u ON c.user_id = u.id
+         WHERE c.id = $1`,
+        [commentId]
+      );
+
+      res.status(201).json(newComment.rows[0]);
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('Ошибка при добавлении комментария:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.delete('/api/comments/:commentId', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { commentId } = req.params;
+
+  try {
+    const client = await pool.connect();
+    
+    try {
+      const commentCheck = await client.query(
+        `SELECT 1 FROM comments 
+         WHERE id = $1 AND (user_id = $2 OR 
+           EXISTS (SELECT 1 FROM comics c 
+                  JOIN comments cm ON c.id = cm.comic_id 
+                  WHERE cm.id = $1 AND c.creator = $2))`,
+        [commentId, req.user.id]
+      );
+
+      if (commentCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Комментарий не найден или у вас нет прав на его удаление' });
+      }
+
+      await client.query('DELETE FROM comments WHERE id = $1', [commentId]);
+
+      res.status(200).json({ success: true });
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('Ошибка при удалении комментария:', err);
     res.status(500).json({ 
       error: 'Ошибка сервера',
       details: err.message 
