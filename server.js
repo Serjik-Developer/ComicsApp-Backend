@@ -1189,7 +1189,6 @@ app.get('/api/user/favorites', async (req, res) => {
     });
   }
 });
-
 app.get('/api/comics/:comicsId/info', async (req, res) => {
   const { comicsId } = req.params;
   const userId = req.user?.id;
@@ -1291,7 +1290,10 @@ app.get('/api/comics/:comicsId/info', async (req, res) => {
         likesCount: parseInt(likesCount.rows[0].count, 10),
         userLiked,
         userFavorited,
-        comments: comments.rows
+        comments: comments.rows.map(comment => ({
+          ...comment,
+          isCommentMy: userId ? comment.user_id === userId : false
+        }))
       };
 
       res.status(200).json(response);
