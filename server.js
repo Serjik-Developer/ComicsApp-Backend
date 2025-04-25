@@ -1198,9 +1198,10 @@ app.get('/api/comics/:comicsId/info', async (req, res) => {
     
     try {
       const comicInfo = await client.query(
-        `SELECT id, text, description, creator 
-         FROM comics 
-         WHERE id = $1`,
+        `SELECT c.id, c.text, c.description, c.creator, u.name as creator_name 
+         FROM comics c
+         JOIN users u ON c.creator = u.id
+         WHERE c.id = $1`,
         [comicsId]
       );
 
@@ -1286,6 +1287,7 @@ app.get('/api/comics/:comicsId/info', async (req, res) => {
         text: comic.text,
         description: comic.description,
         creator: comic.creator,
+        creator_name: comic.creator_name,
         firstPage: firstPage,
         likesCount: parseInt(likesCount.rows[0].count, 10),
         userLiked,
@@ -1308,7 +1310,6 @@ app.get('/api/comics/:comicsId/info', async (req, res) => {
     });
   }
 });
-
 app.post('/api/comics/:comicsId/comments', async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
