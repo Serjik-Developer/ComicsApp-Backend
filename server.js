@@ -1402,6 +1402,79 @@ app.delete('/api/comments/:commentId', async (req, res) => {
   }
 });
 
+app.get('/api/users/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const client = await pool.connect();
+
+    try {
+      const userInfo = await client.query(
+        'SELECT id, name FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (userInfo.rows.length === 0) {
+        return res.status(404).json({ error: 'Пользователь не найден' });
+      }
+
+      const user = userInfo.rows[0];
+      const likesCount = await client.query(
+        `SELECT COUNT(*) as total_likes
+         FROM likes l
+         JOIN comics c ON l.comic_id = c.id
+         WHERE c.creator = $1`,
+        [userId]
+      );
+      const comics = await client.query(
+        `SELECT 
+           c.id, 
+           c.text, 
+           c.description,
+           (
+             SELECT COUNT(*) 
+             FROM likes 
+             WHERE comic_id = c.id
+           ) as likes_count,
+           (
+             SELECT encode(i.image, 'base64') as image
+             FROM pages p
+             JOIN image i ON i.pageid = p.pageid
+             WHERE p.comicsid = c.id AND i.cellindex = 0
+             ORDER BY p.number
+             LIMIT 1
+           ) as cover_image
+         FROM comics c
+         WHERE c.creator = $1
+         ORDER BY c.text`,
+        [userId]
+      );
+      const response = {
+        id: user.id,
+        name: user.name,
+        total_likes: parseInt(likesCount.rows[0].total_likes, 10),
+        comics: comics.rows.map(comic => ({
+          id: comic.id,
+          text: comic.text,
+          description: comic.description,
+          likes_count: parseInt(comic.likes_count, 10),
+          cover_image: comic.cover_image
+        }))
+      };
+
+      res.status(200).json(response);
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('Ошибка при получении информации о пользователе:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+
 app.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
