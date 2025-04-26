@@ -108,6 +108,11 @@ async function createTables() {
         text TEXT NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        subscriber_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        target_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        PRIMARY KEY (subscriber_id, target_user_id)
+      );
     `);
     console.log('✅ Таблицы созданы/проверены');
   } catch (err) {
@@ -1405,6 +1410,7 @@ app.delete('/api/comments/:commentId', async (req, res) => {
 app.get('/api/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
+    const currentUserId = req.user?.id;
     const client = await pool.connect();
 
     try {
@@ -1418,6 +1424,7 @@ app.get('/api/users/:userId', async (req, res) => {
       }
 
       const user = userInfo.rows[0];
+      
       const likesCount = await client.query(
         `SELECT COUNT(*) as total_likes
          FROM likes l
@@ -1425,6 +1432,7 @@ app.get('/api/users/:userId', async (req, res) => {
          WHERE c.creator = $1`,
         [userId]
       );
+      
       const comics = await client.query(
         `SELECT 
            c.id, 
@@ -1448,10 +1456,39 @@ app.get('/api/users/:userId', async (req, res) => {
          ORDER BY c.text`,
         [userId]
       );
+      
+      const subscribersCount = await client.query(
+        `SELECT COUNT(*) as count 
+         FROM subscriptions 
+         WHERE target_user_id = $1`,
+        [userId]
+      );
+      
+      const subscriptionsCount = await client.query(
+        `SELECT COUNT(*) as count 
+         FROM subscriptions 
+         WHERE subscriber_id = $1`,
+        [userId]
+      );
+      
+      let isSubscribed = false;
+      if (currentUserId) {
+        const subCheck = await client.query(
+          `SELECT 1 
+           FROM subscriptions 
+           WHERE subscriber_id = $1 AND target_user_id = $2`,
+          [currentUserId, userId]
+        );
+        isSubscribed = subCheck.rows.length > 0;
+      }
+
       const response = {
         id: user.id,
         name: user.name,
         total_likes: parseInt(likesCount.rows[0].total_likes, 10),
+        subscribers_count: parseInt(subscribersCount.rows[0].count, 10),
+        subscriptions_count: parseInt(subscriptionsCount.rows[0].count, 10),
+        is_subscribed: isSubscribed,
         comics: comics.rows.map(comic => ({
           id: comic.id,
           text: comic.text,
@@ -1474,6 +1511,116 @@ app.get('/api/users/:userId', async (req, res) => {
   }
 });
 
+app.post('/api/users/:userId/subscribe', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { userId } = req.params;
+  
+  try {
+    const userCheck = await pool.query('SELECT 1 FROM users WHERE id = $1', [userId]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    if (userId === req.user.id) {
+      return res.status(400).json({ error: 'Нельзя подписаться на себя' });
+    }
+
+    const subCheck = await pool.query(
+      'SELECT 1 FROM subscriptions WHERE subscriber_id = $1 AND target_user_id = $2',
+      [req.user.id, userId]
+    );
+
+    if (subCheck.rows.length > 0) {
+      await pool.query(
+        'DELETE FROM subscriptions WHERE subscriber_id = $1 AND target_user_id = $2',
+        [req.user.id, userId]
+      );
+      return res.status(200).json({ subscribed: false });
+    } else {
+      await pool.query(
+        'INSERT INTO subscriptions (subscriber_id, target_user_id) VALUES ($1, $2)',
+        [req.user.id, userId]
+      );
+      return res.status(200).json({ subscribed: true });
+    }
+  } catch (err) {
+    console.error('Ошибка при обработке подписки:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.get('/api/users/:userId/subscribe', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { userId } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'SELECT 1 FROM subscriptions WHERE subscriber_id = $1 AND target_user_id = $2',
+      [req.user.id, userId]
+    );
+    
+    res.status(200).json({ subscribed: result.rows.length > 0 });
+  } catch (err) {
+    console.error('Ошибка при проверке подписки:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.get('/api/users/:userId/subscribers', async (req, res) => {
+  const { userId } = req.params;
+  
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.name 
+       FROM users u
+       JOIN subscriptions s ON u.id = s.subscriber_id
+       WHERE s.target_user_id = $1`,
+      [userId]
+    );
+    
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Ошибка при получении подписчиков:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
+
+app.get('/api/users/:userId/subscriptions', async (req, res) => {
+  const { userId } = req.params;
+  
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.name 
+       FROM users u
+       JOIN subscriptions s ON u.id = s.target_user_id
+       WHERE s.subscriber_id = $1`,
+      [userId]
+    );
+    
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Ошибка при получении подписок:', err);
+    res.status(500).json({ 
+      error: 'Ошибка сервера',
+      details: err.message 
+    });
+  }
+});
 
 app.get('/health', async (req, res) => {
   try {
