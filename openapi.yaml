@@ -126,6 +126,99 @@ components:
           type: boolean
         message:
           type: string
+    Comment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        comic_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        user_name:
+          type: string
+        isCommentMy:
+          type: boolean
+
+    ComicInfoResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        description:
+          type: string
+        creator:
+          type: string
+          format: uuid
+        creator_name:
+          type: string
+        firstPage:
+          $ref: '#/components/schemas/Page'
+        likesCount:
+          type: integer
+        userLiked:
+          type: boolean
+        userFavorited:
+          type: boolean
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Comment'
+
+    Subscription:
+      type: object
+      properties:
+        subscriber_id:
+          type: string
+          format: uuid
+        target_user_id:
+          type: string
+          format: uuid
+
+    UserProfileResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        total_likes:
+          type: integer
+        subscribers_count:
+          type: integer
+        subscriptions_count:
+          type: integer
+        is_subscribed:
+          type: boolean
+        comics:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              text:
+                type: string
+              description:
+                type: string
+              likes_count:
+                type: integer
+              cover_image:
+                type: string
+                format: base64
 
 paths:
   /api/user/auth:
@@ -837,6 +930,234 @@ paths:
                   $ref: '#/components/schemas/ComicListItem'
         '401':
           description: Not authorized
+        '500':
+          description: Server error
+
+  /api/comics/{comicsId}/info:
+    get:
+      tags:
+        - Comics
+      summary: Get detailed comic info with likes, favorites and comments
+      parameters:
+        - name: comicsId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Comic info retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComicInfoResponse'
+        '404':
+          description: Comic not found
+        '500':
+          description: Server error
+
+  /api/comics/{comicsId}/comments:
+    post:
+      tags:
+        - Comments
+      summary: Add comment to comic
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: comicsId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+              required:
+                - text
+      responses:
+        '201':
+          description: Comment added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          description: Missing required fields
+        '401':
+          description: Not authorized
+        '404':
+          description: Comic not found
+        '500':
+          description: Server error
+
+  /api/comments/{commentId}:
+    delete:
+      tags:
+        - Comments
+      summary: Delete comment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Comment deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          description: Not authorized
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Comment not found
+        '500':
+          description: Server error
+
+  /api/users/{userId}:
+    get:
+      tags:
+        - User
+      summary: Get user profile info with comics and likes count
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User profile info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '404':
+          description: User not found
+        '500':
+          description: Server error
+          
+
+  /api/users/{userId}/subscribe:
+    post:
+      tags:
+        - Subscriptions
+      summary: Toggle subscription to user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription status toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscribed:
+                    type: boolean
+        '400':
+          description: Cannot subscribe to self
+        '401':
+          description: Not authorized
+        '404':
+          description: User not found
+        '500':
+          description: Server error
+    get:
+      tags:
+        - Subscriptions
+      summary: Check if current user is subscribed
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscribed:
+                    type: boolean
+        '401':
+          description: Not authorized
+        '500':
+          description: Server error
+
+  /api/users/{userId}/subscribers:
+    get:
+      tags:
+        - Subscriptions
+      summary: Get user's subscribers list
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of subscribers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '500':
+          description: Server error
+
+  /api/users/{userId}/subscriptions:
+    get:
+      tags:
+        - Subscriptions
+      summary: Get user's subscriptions list
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of subscribed users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
         '500':
           description: Server error
   /health:
