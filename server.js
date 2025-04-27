@@ -79,7 +79,8 @@ async function createTables() {
         id TEXT PRIMARY KEY,
         login TEXT,
         password TEXT,
-        name TEXT
+        name TEXT,
+        avatar BYTEA
       );
       
       CREATE TABLE IF NOT EXISTS login_attempts (
@@ -1415,7 +1416,12 @@ app.get('/api/users/:userId', async (req, res) => {
 
     try {
       const userInfo = await client.query(
-        'SELECT id, name FROM users WHERE id = $1',
+        `SELECT 
+          id, 
+          name,
+          encode(avatar, 'base64') as avatar
+         FROM users 
+         WHERE id = $1`,
         [userId]
       );
 
@@ -1470,7 +1476,6 @@ app.get('/api/users/:userId', async (req, res) => {
          WHERE subscriber_id = $1`,
         [userId]
       );
-      
       let isSubscribed = false;
       if (currentUserId) {
         const subCheck = await client.query(
@@ -1481,10 +1486,10 @@ app.get('/api/users/:userId', async (req, res) => {
         );
         isSubscribed = subCheck.rows.length > 0;
       }
-
       const response = {
         id: user.id,
         name: user.name,
+        avatar: user.avatar || null,
         total_likes: parseInt(likesCount.rows[0].total_likes, 10),
         subscribers_count: parseInt(subscribersCount.rows[0].count, 10),
         subscriptions_count: parseInt(subscriptionsCount.rows[0].count, 10),
@@ -1635,6 +1640,50 @@ app.get('/health', async (req, res) => {
       database: 'disconnected',
       error: err.message
     });
+  }
+});
+
+app.post('/api/user/avatar', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { avatar } = req.body;
+
+  if (!avatar) {
+    return res.status(400).json({ message: 'Avatar image is required' });
+  }
+
+  try {
+    const avatarBuffer = Buffer.from(avatar, 'base64');
+    await pool.query(
+      'UPDATE users SET avatar = $1 WHERE id = $2',
+      [avatarBuffer, req.user.id]
+    );
+
+    res.status(200).json({ message: 'Avatar uploaded successfully' });
+  } catch (err) {
+    console.error('Error uploading avatar:', err);
+    res.status(500).json({ message: 'Error uploading avatar' });
+  }
+});
+
+// DELETE USER AVATAR
+app.delete('/api/user/avatar', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  try {
+    await pool.query(
+      'UPDATE users SET avatar = NULL WHERE id = $1',
+      [req.user.id]
+    );
+
+    res.status(200).json({ message: 'Avatar removed successfully' });
+  } catch (err) {
+    console.error('Error removing avatar:', err);
+    res.status(500).json({ message: 'Error removing avatar' });
   }
 });
 
