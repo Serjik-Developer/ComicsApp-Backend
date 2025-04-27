@@ -303,13 +303,32 @@ app.post('/api/user/register', async (req, res) => {
 
 
 
-//GET INFO ABOUT CURRENT USER
-app.get('/api/user', (req, res) => {
-  if (req.user) return res.status(200).json( {response : req.user});
-  else
-      return res
-          .status(401)
-          .json({ message: 'Not authorized' });
+app.get('/api/user', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT id, login, name, encode(avatar, \'base64\') as avatar FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    res.status(200).json({
+      id: user.id,
+      login: user.login,
+      name: user.name,
+      avatar: user.avatar || null
+    });
+  } catch (err) {
+    console.error('Error getting user info:', err);
+    res.status(500).json({ message: 'Error getting user info' });
+  }
 });
 
 app.delete('/api/comics/:id', async(req,res) => {
@@ -1431,76 +1450,10 @@ app.get('/api/users/:userId', async (req, res) => {
 
       const user = userInfo.rows[0];
       
-      const likesCount = await client.query(
-        `SELECT COUNT(*) as total_likes
-         FROM likes l
-         JOIN comics c ON l.comic_id = c.id
-         WHERE c.creator = $1`,
-        [userId]
-      );
-      
-      const comics = await client.query(
-        `SELECT 
-           c.id, 
-           c.text, 
-           c.description,
-           (
-             SELECT COUNT(*) 
-             FROM likes 
-             WHERE comic_id = c.id
-           ) as likes_count,
-           (
-             SELECT encode(i.image, 'base64') as image
-             FROM pages p
-             JOIN image i ON i.pageid = p.pageid
-             WHERE p.comicsid = c.id AND i.cellindex = 0
-             ORDER BY p.number
-             LIMIT 1
-           ) as cover_image
-         FROM comics c
-         WHERE c.creator = $1
-         ORDER BY c.text`,
-        [userId]
-      );
-      
-      const subscribersCount = await client.query(
-        `SELECT COUNT(*) as count 
-         FROM subscriptions 
-         WHERE target_user_id = $1`,
-        [userId]
-      );
-      
-      const subscriptionsCount = await client.query(
-        `SELECT COUNT(*) as count 
-         FROM subscriptions 
-         WHERE subscriber_id = $1`,
-        [userId]
-      );
-      let isSubscribed = false;
-      if (currentUserId) {
-        const subCheck = await client.query(
-          `SELECT 1 
-           FROM subscriptions 
-           WHERE subscriber_id = $1 AND target_user_id = $2`,
-          [currentUserId, userId]
-        );
-        isSubscribed = subCheck.rows.length > 0;
-      }
       const response = {
         id: user.id,
         name: user.name,
-        avatar: user.avatar || null,
-        total_likes: parseInt(likesCount.rows[0].total_likes, 10),
-        subscribers_count: parseInt(subscribersCount.rows[0].count, 10),
-        subscriptions_count: parseInt(subscriptionsCount.rows[0].count, 10),
-        is_subscribed: isSubscribed,
-        comics: comics.rows.map(comic => ({
-          id: comic.id,
-          text: comic.text,
-          description: comic.description,
-          likes_count: parseInt(comic.likes_count, 10),
-          cover_image: comic.cover_image
-        }))
+        avatar: user.avatar || null
       };
 
       res.status(200).json(response);
@@ -1515,6 +1468,7 @@ app.get('/api/users/:userId', async (req, res) => {
     });
   }
 });
+
 
 app.post('/api/users/:userId/subscribe', async (req, res) => {
   if (!req.user) {
@@ -1660,15 +1614,21 @@ app.post('/api/user/avatar', async (req, res) => {
       'UPDATE users SET avatar = $1 WHERE id = $2',
       [avatarBuffer, req.user.id]
     );
+    const updatedUser = await pool.query(
+      'SELECT id, login, name, encode(avatar, \'base64\') as avatar FROM users WHERE id = $1',
+      [req.user.id]
+    );
 
-    res.status(200).json({ message: 'Avatar uploaded successfully' });
+    res.status(200).json({
+      message: 'Avatar uploaded successfully',
+      user: updatedUser.rows[0]
+    });
   } catch (err) {
     console.error('Error uploading avatar:', err);
     res.status(500).json({ message: 'Error uploading avatar' });
   }
 });
 
-// DELETE USER AVATAR
 app.delete('/api/user/avatar', async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
@@ -1680,7 +1640,15 @@ app.delete('/api/user/avatar', async (req, res) => {
       [req.user.id]
     );
 
-    res.status(200).json({ message: 'Avatar removed successfully' });
+    const updatedUser = await pool.query(
+      'SELECT id, login, name, encode(avatar, \'base64\') as avatar FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    res.status(200).json({
+      message: 'Avatar removed successfully',
+      user: updatedUser.rows[0]
+    });
   } catch (err) {
     console.error('Error removing avatar:', err);
     res.status(500).json({ message: 'Error removing avatar' });
