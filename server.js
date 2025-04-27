@@ -1426,7 +1426,6 @@ app.delete('/api/comments/:commentId', async (req, res) => {
     });
   }
 });
-
 app.get('/api/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1450,10 +1449,78 @@ app.get('/api/users/:userId', async (req, res) => {
 
       const user = userInfo.rows[0];
       
+      const likesCount = await client.query(
+        `SELECT COUNT(*) as total_likes
+         FROM likes l
+         JOIN comics c ON l.comic_id = c.id
+         WHERE c.creator = $1`,
+        [userId]
+      );
+      
+      const comics = await client.query(
+        `SELECT 
+           c.id, 
+           c.text, 
+           c.description,
+           (
+             SELECT COUNT(*) 
+             FROM likes 
+             WHERE comic_id = c.id
+           ) as likes_count,
+           (
+             SELECT encode(i.image, 'base64') as image
+             FROM pages p
+             JOIN image i ON i.pageid = p.pageid
+             WHERE p.comicsid = c.id AND i.cellindex = 0
+             ORDER BY p.number
+             LIMIT 1
+           ) as cover_image
+         FROM comics c
+         WHERE c.creator = $1
+         ORDER BY c.text`,
+        [userId]
+      );
+      
+      const subscribersCount = await client.query(
+        `SELECT COUNT(*) as count 
+         FROM subscriptions 
+         WHERE target_user_id = $1`,
+        [userId]
+      );
+      
+      const subscriptionsCount = await client.query(
+        `SELECT COUNT(*) as count 
+         FROM subscriptions 
+         WHERE subscriber_id = $1`,
+        [userId]
+      );
+      
+      let isSubscribed = false;
+      if (currentUserId) {
+        const subCheck = await client.query(
+          `SELECT 1 
+           FROM subscriptions 
+           WHERE subscriber_id = $1 AND target_user_id = $2`,
+          [currentUserId, userId]
+        );
+        isSubscribed = subCheck.rows.length > 0;
+      }
+
       const response = {
         id: user.id,
         name: user.name,
-        avatar: user.avatar || null
+        avatar: user.avatar || null,
+        total_likes: parseInt(likesCount.rows[0].total_likes, 10),
+        subscribers_count: parseInt(subscribersCount.rows[0].count, 10),
+        subscriptions_count: parseInt(subscriptionsCount.rows[0].count, 10),
+        is_subscribed: isSubscribed,
+        comics: comics.rows.map(comic => ({
+          id: comic.id,
+          text: comic.text,
+          description: comic.description,
+          likes_count: parseInt(comic.likes_count, 10),
+          cover_image: comic.cover_image
+        }))
       };
 
       res.status(200).json(response);
