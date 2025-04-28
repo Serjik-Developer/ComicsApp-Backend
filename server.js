@@ -1609,7 +1609,10 @@ app.get('/api/users/:userId/subscribers', async (req, res) => {
   
   try {
     const result = await pool.query(
-      `SELECT u.id, u.name 
+      `SELECT 
+         u.id, 
+         u.name,
+         encode(u.avatar, 'base64') as avatar
        FROM users u
        JOIN subscriptions s ON u.id = s.subscriber_id
        WHERE s.target_user_id = $1`,
@@ -1631,7 +1634,10 @@ app.get('/api/users/:userId/subscriptions', async (req, res) => {
   
   try {
     const result = await pool.query(
-      `SELECT u.id, u.name 
+      `SELECT 
+         u.id, 
+         u.name,
+         encode(u.avatar, 'base64') as avatar
        FROM users u
        JOIN subscriptions s ON u.id = s.target_user_id
        WHERE s.subscriber_id = $1`,
