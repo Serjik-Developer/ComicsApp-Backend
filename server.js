@@ -1520,7 +1520,7 @@ app.get('/api/users/:userId', async (req, res) => {
           text: comic.text,
           description: comic.description,
           likes_count: parseInt(comic.likes_count, 10),
-          cover_image: comic.cover_image
+          image: comic.cover_image
         }))
       };
 
