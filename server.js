@@ -1426,6 +1426,7 @@ app.delete('/api/comments/:commentId', async (req, res) => {
     });
   }
 });
+
 app.get('/api/users/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1495,8 +1496,8 @@ app.get('/api/users/:userId', async (req, res) => {
         [userId]
       );
       
-      let isSubscribed = false;
-      if (currentUserId) {
+      let isSubscribed = null;
+      if (currentUserId && currentUserId !== userId) {
         const subCheck = await client.query(
           `SELECT 1 
            FROM subscriptions 
@@ -1535,7 +1536,6 @@ app.get('/api/users/:userId', async (req, res) => {
     });
   }
 });
-
 
 app.post('/api/users/:userId/subscribe', async (req, res) => {
   if (!req.user) {
