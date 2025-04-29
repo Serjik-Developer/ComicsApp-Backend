@@ -1606,17 +1606,22 @@ app.get('/api/users/:userId/subscribe', async (req, res) => {
 
 app.get('/api/users/:userId/subscribers', async (req, res) => {
   const { userId } = req.params;
+  const currentUserId = req.user?.id;
   
   try {
     const result = await pool.query(
       `SELECT 
          u.id, 
          u.name,
-         encode(u.avatar, 'base64') as avatar
+         encode(u.avatar, 'base64') as avatar,
+         EXISTS (
+           SELECT 1 FROM subscriptions 
+           WHERE subscriber_id = $2 AND target_user_id = u.id
+         ) as is_subscribed_by_me
        FROM users u
        JOIN subscriptions s ON u.id = s.subscriber_id
        WHERE s.target_user_id = $1`,
-      [userId]
+      [userId, currentUserId]
     );
     
     res.status(200).json(result.rows);
@@ -1631,17 +1636,22 @@ app.get('/api/users/:userId/subscribers', async (req, res) => {
 
 app.get('/api/users/:userId/subscriptions', async (req, res) => {
   const { userId } = req.params;
+  const currentUserId = req.user?.id;
   
   try {
     const result = await pool.query(
       `SELECT 
          u.id, 
          u.name,
-         encode(u.avatar, 'base64') as avatar
+         encode(u.avatar, 'base64') as avatar,
+         EXISTS (
+           SELECT 1 FROM subscriptions 
+           WHERE subscriber_id = $2 AND target_user_id = u.id
+         ) as is_subscribed_by_me
        FROM users u
        JOIN subscriptions s ON u.id = s.target_user_id
        WHERE s.subscriber_id = $1`,
-      [userId]
+      [userId, currentUserId]
     );
     
     res.status(200).json(result.rows);
