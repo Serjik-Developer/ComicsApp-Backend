@@ -300,7 +300,54 @@ app.post('/api/user/register', async (req, res) => {
   }
 });
 
+app.put('/api/user/password', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
 
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Current and new password are required' });
+  }
+
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ message: 'New password must be different from current password' });
+  }
+
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+
+    const userCheck = await client.query(
+      'SELECT password FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (userCheck.rows[0].password !== currentPassword) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+
+    await client.query(
+      'UPDATE users SET password = $1 WHERE id = $2',
+      [newPassword, req.user.id]
+    );
+
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'Password changed successfully' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error changing password:', err);
+    res.status(500).json({ message: 'Error changing password' });
+  } finally {
+    client.release();
+  }
+});
 
 
 app.get('/api/user', async (req, res) => {
