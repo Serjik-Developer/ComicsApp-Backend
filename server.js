@@ -300,6 +300,37 @@ app.post('/api/user/register', async (req, res) => {
   }
 });
 
+app.put('/api/user/name', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { name } = req.body;
+
+  if (!name) {
+    return res.status(400).json({ message: 'Name is required' });
+  }
+
+  if (name.length > 50) {
+    return res.status(400).json({ message: 'Name is too long (max 50 characters)' });
+  }
+
+  try {
+    await pool.query(
+      'UPDATE users SET name = $1 WHERE id = $2',
+      [name, req.user.id]
+    );
+
+    res.status(200).json({ 
+      message: 'Name changed successfully',
+      newName: name
+    });
+  } catch (err) {
+    console.error('Error changing name:', err);
+    res.status(500).json({ message: 'Error changing name' });
+  }
+});
+
 app.put('/api/user/password', async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized' });
