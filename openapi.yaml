@@ -8,7 +8,27 @@ servers:
     description: Local development server
   - url: https://api.example.com
     description: Production server
-
+tags:
+  - name: Authentication
+    description: Регистрация и авторизация
+  - name: User
+    description: Профиль пользователя
+  - name: Comics
+    description: Управление комиксами
+  - name: Pages
+    description: Управление страницами
+  - name: Images
+    description: Управление изображениями
+  - name: Likes
+    description: Лайки на комиксы
+  - name: Favorites
+    description: Избранное
+  - name: Comments
+    description: Комментарии к комиксам
+  - name: Subscriptions
+    description: Подписки на пользователей
+  - name: System
+    description: Системные проверки
 components:
   securitySchemes:
     bearerAuth:
@@ -147,7 +167,6 @@ components:
           type: string
         isCommentMy:
           type: boolean
-
     ComicInfoResponse:
       type: object
       properties:
@@ -175,7 +194,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Comment'
-
     Subscription:
       type: object
       properties:
@@ -185,7 +203,6 @@ components:
         target_user_id:
           type: string
           format: uuid
-
     UserProfileResponse:
       type: object
       properties:
@@ -219,7 +236,6 @@ components:
               cover_image:
                 type: string
                 format: base64
-
 paths:
   /api/user/auth:
     post:
@@ -255,7 +271,6 @@ paths:
           description: User not found
         '500':
           description: Authentication failed
-
   /api/user/register:
     post:
       tags:
@@ -291,7 +306,6 @@ paths:
           description: User already exists
         '500':
           description: Registration failed
-
   /api/user:
     get:
       tags:
@@ -311,7 +325,6 @@ paths:
                     $ref: '#/components/schemas/User'
         '401':
           description: Not authorized
-
   /api/comics:
     get:
       tags:
@@ -389,7 +402,6 @@ paths:
           description: Сomic exists 
         '500':
           description: Server error
-
   /api/mycomics:
     get:
       tags:
@@ -410,7 +422,6 @@ paths:
           description: Not authorized
         '500':
           description: Server error
-
   /api/comics/{id}:
     get:
       tags:
@@ -539,7 +550,6 @@ paths:
           description: Comic not found
         '500':
           description: Server error
-
   /api/comics/pages/{comicsId}:
     post:
       tags:
@@ -588,7 +598,6 @@ paths:
           description: Comic not found
         '500':
           description: Server error
-
   /api/comics/pages/{pageId}:
     get: 
       tags:
@@ -614,7 +623,6 @@ paths:
           description: Not authorized
         '500':
           description: Server error
-
     delete:
       tags:
         - Pages
@@ -643,7 +651,6 @@ paths:
           description: Page not found
         '500':
           description: Server error
-
   /api/comics/pages/images/{pageId}:
     post:
       tags:
@@ -693,7 +700,6 @@ paths:
           description: Page not found
         '500':
           description: Server error
-
   /api/comics/pages/images/{imageId}:
     delete:
       tags:
@@ -725,8 +731,6 @@ paths:
           description: Image not found
         '500':
           description: Server error
-
-
     put:
       tags:
         - Images
@@ -770,7 +774,6 @@ paths:
           description: Image not found
         '500':
           description: Server error
-
   /api/comics/{id}/like:
     post:
       tags:
@@ -828,7 +831,6 @@ paths:
           description: Not authorized
         '500':
           description: Server error
-
   /api/comics/{id}/likes/count:
     get:
       tags:
@@ -853,7 +855,6 @@ paths:
                     type: integer
         '500':
           description: Server error
-
   /api/comics/{id}/favorite:
     post:
       tags:
@@ -911,7 +912,6 @@ paths:
           description: Not authorized
         '500':
           description: Server error
-
   /api/user/favorites:
     get:
       tags:
@@ -932,7 +932,6 @@ paths:
           description: Not authorized
         '500':
           description: Server error
-
   /api/comics/{comicsId}/info:
     get:
       tags:
@@ -956,7 +955,6 @@ paths:
           description: Comic not found
         '500':
           description: Server error
-
   /api/comics/{comicsId}/comments:
     post:
       tags:
@@ -997,7 +995,6 @@ paths:
           description: Comic not found
         '500':
           description: Server error
-
   /api/comments/{commentId}:
     delete:
       tags:
@@ -1027,7 +1024,6 @@ paths:
           description: Comment not found
         '500':
           description: Server error
-
   /api/users/{userId}:
     get:
       tags:
@@ -1051,8 +1047,6 @@ paths:
           description: User not found
         '500':
           description: Server error
-          
-
   /api/users/{userId}/subscribe:
     post:
       tags:
@@ -1112,7 +1106,6 @@ paths:
           description: Not authorized
         '500':
           description: Server error
-
   /api/users/{userId}/subscribers:
     get:
       tags:
@@ -1136,7 +1129,6 @@ paths:
                   $ref: '#/components/schemas/User'
         '500':
           description: Server error
-
   /api/users/{userId}/subscriptions:
     get:
       tags:
