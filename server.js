@@ -1,4 +1,5 @@
 require('dotenv').config();
+const admin = require('firebase-admin');
 const crypto = require('crypto');
 const express = require('express');
 const { Pool } = require('pg');
@@ -17,6 +18,17 @@ const poolConfig = {
     require: true
   }
 };
+
+const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+
+admin.initializeApp({
+  credential: admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: privateKey
+  })
+});
+
 
 const pool = new Pool(poolConfig);
 
@@ -114,6 +126,11 @@ async function createTables() {
         target_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
         PRIMARY KEY (subscriber_id, target_user_id)
       );
+      CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        fcm_token TEXT,
+        notifications_enabled BOOLEAN DEFAULT true
+);
     `);
     console.log('✅ Таблицы созданы/проверены');
   } catch (err) {
@@ -974,6 +991,7 @@ app.post('/api/comics', async (req, res) => {
         'INSERT INTO comics (id, text, description, creator, hash) VALUES ($1, $2, $3, $4, $5)',
         [comicId, text, description, req.user.id, comicHash]
       );
+      
       for (const page of pages) {
         const pageId = crypto.randomUUID();
         
@@ -996,6 +1014,53 @@ app.post('/api/comics', async (req, res) => {
       }
       
       await client.query('COMMIT');
+      
+      // Отправка уведомлений подписчикам
+      try {
+        // Получаем список подписчиков
+        const subscribers = await client.query(
+          `SELECT u.id, s.fcm_token 
+           FROM subscriptions sub
+           JOIN users u ON sub.subscriber_id = u.id
+           LEFT JOIN user_settings s ON u.id = s.user_id
+           WHERE sub.target_user_id = $1 AND (s.notifications_enabled IS NULL OR s.notifications_enabled = true)`,
+          [req.user.id]
+        );
+        
+        if (subscribers.rows.length > 0) {
+          const creator = await client.query(
+            'SELECT name FROM users WHERE id = $1',
+            [req.user.id]
+          );
+          
+          const creatorName = creator.rows[0]?.name || 'Автор';
+          
+          // Формируем сообщение
+          const message = {
+            notification: {
+              title: 'Новый комикс',
+              body: `${creatorName} опубликовал новый комикс: "${text}"`
+            },
+            data: {
+              type: 'new_comic',
+              comic_id: comicId,
+              creator_id: req.user.id,
+              click_action: 'FLUTTER_NOTIFICATION_CLICK'
+            },
+            tokens: subscribers.rows.map(sub => sub.fcm_token).filter(Boolean)
+          };
+          
+          if (message.tokens.length > 0) {
+            // Отправляем уведомления через Firebase
+            const response = await admin.messaging().sendMulticast(message);
+            console.log('Уведомления отправлены:', response.successCount, 'успешно,', response.failureCount, 'с ошибкой');
+          }
+        }
+      } catch (notifyErr) {
+        console.error('Ошибка отправки уведомлений:', notifyErr);
+        // Не прерываем выполнение, даже если уведомления не отправились
+      }
+
       res.status(200).json({ 
         message: 'Комикс сохранён!',
         comicId: comicId 
@@ -1822,6 +1887,59 @@ app.delete('/api/user/avatar', async (req, res) => {
   }
 });
 
+app.post('/api/user/fcm_token', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { token } = req.body;
+  
+  if (!token) {
+    return res.status(400).json({ message: 'Token is required' });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO user_settings (user_id, fcm_token) 
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) 
+       DO UPDATE SET fcm_token = EXCLUDED.fcm_token`,
+      [req.user.id, token]
+    );
+    
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('Error saving FCM token:', err);
+    res.status(500).json({ message: 'Error saving token' });
+  }
+});
+
+app.put('/api/user/notification_settings', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Not authorized' });
+  }
+
+  const { enabled } = req.body;
+  
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ message: 'Enabled flag is required' });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO user_settings (user_id, notifications_enabled) 
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) 
+       DO UPDATE SET notifications_enabled = EXCLUDED.notifications_enabled`,
+      [req.user.id, enabled]
+    );
+    
+    res.status(200).json({ success: true, notifications_enabled: enabled });
+  } catch (err) {
+    console.error('Error updating notification settings:', err);
+    res.status(500).json({ message: 'Error updating settings' });
+  }
+});
 async function startServer() {
     const isConnected = await checkDatabaseConnection();
     if (!isConnected) {
