@@ -1016,26 +1016,32 @@ app.post('/api/comics', async (req, res) => {
       await client.query('COMMIT');
       
       // Отправка уведомлений подписчикам
-      try {
-        // Получаем список подписчиков
-        const subscribers = await client.query(
-          `SELECT u.id, s.fcm_token 
-           FROM subscriptions sub
-           JOIN users u ON sub.subscriber_id = u.id
-           LEFT JOIN user_settings s ON u.id = s.user_id
-           WHERE sub.target_user_id = $1 AND (s.notifications_enabled IS NULL OR s.notifications_enabled = true)`,
-          [req.user.id]
-        );
-        
-        if (subscribers.rows.length > 0) {
-          const creator = await client.query(
-            'SELECT name FROM users WHERE id = $1',
-            [req.user.id]
-          );
-          
-          const creatorName = creator.rows[0]?.name || 'Автор';
-          
-          // Формируем сообщение
+   // Отправка уведомлений подписчикам
+try {
+  // Получаем список подписчиков с FCM токенами
+  const subscribers = await client.query(
+    `SELECT u.id, s.fcm_token 
+     FROM subscriptions sub
+     JOIN users u ON sub.subscriber_id = u.id
+     LEFT JOIN user_settings s ON u.id = s.user_id
+     WHERE sub.target_user_id = $1 
+       AND s.fcm_token IS NOT NULL
+       AND (s.notifications_enabled IS NULL OR s.notifications_enabled = true)`,
+    [req.user.id]
+  );
+  
+  if (subscribers.rows.length > 0) {
+    const creator = await client.query(
+      'SELECT name FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    
+    const creatorName = creator.rows[0]?.name || 'Автор';
+    
+    // Для Firebase Admin SDK < 9.0.0
+    const sendResults = await Promise.all(
+      subscribers.rows.map(async (sub) => {
+        try {
           const message = {
             notification: {
               title: 'Новый комикс',
@@ -1047,19 +1053,24 @@ app.post('/api/comics', async (req, res) => {
               creator_id: req.user.id,
               click_action: 'FLUTTER_NOTIFICATION_CLICK'
             },
-            tokens: subscribers.rows.map(sub => sub.fcm_token).filter(Boolean)
+            token: sub.fcm_token
           };
           
-          if (message.tokens.length > 0) {
-            // Отправляем уведомления через Firebase
-            const response = await admin.messaging().sendMulticast(message);
-            console.log('Уведомления отправлены:', response.successCount, 'успешно,', response.failureCount, 'с ошибкой');
-          }
+          return await admin.messaging().send(message);
+        } catch (err) {
+          console.error(`Ошибка отправки уведомления пользователю ${sub.id}:`, err);
+          return { error: err };
         }
-      } catch (notifyErr) {
-        console.error('Ошибка отправки уведомлений:', notifyErr);
-        // Не прерываем выполнение, даже если уведомления не отправились
-      }
+      })
+    );
+
+    const successCount = sendResults.filter(r => !r.error).length;
+    const failureCount = sendResults.filter(r => r.error).length;
+    console.log(`Уведомления отправлены: ${successCount} успешно, ${failureCount} с ошибкой`);
+  }
+} catch (notifyErr) {
+  console.error('Ошибка отправки уведомлений:', notifyErr);
+}
 
       res.status(200).json({ 
         message: 'Комикс сохранён!',
