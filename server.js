@@ -405,7 +405,15 @@ app.get('/api/user', async (req, res) => {
 
   try {
     const result = await pool.query(
-      'SELECT id, login, name, encode(avatar, \'base64\') as avatar FROM users WHERE id = $1',
+      `SELECT 
+        u.id, 
+        u.login, 
+        u.name, 
+        encode(u.avatar, 'base64') as avatar,
+        COALESCE(us.notifications_enabled, true) as is_enabled_notifications
+       FROM users u
+       LEFT JOIN user_settings us ON u.id = us.user_id
+       WHERE u.id = $1`,
       [req.user.id]
     );
 
@@ -418,7 +426,8 @@ app.get('/api/user', async (req, res) => {
       id: user.id,
       login: user.login,
       name: user.name,
-      avatar: user.avatar || null
+      avatar: user.avatar || null,
+      isEnebledNotifications: user.is_enabled_notifications
     });
   } catch (err) {
     console.error('Error getting user info:', err);
